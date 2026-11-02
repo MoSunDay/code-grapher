@@ -1,0 +1,152 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC',
+    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+}
+
+.sider-brand {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ---------- 源码查看器 ---------- */
+.src-viewer {
+  margin: 0;
+  padding: 8px 0;
+  background: #fafafa;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12px;
+  line-height: 20px;
+  overflow: auto;
+}
+
+.src-line {
+  display: flex;
+  white-space: pre;
+}
+
+.src-line:hover {
+  background: #f0f5ff;
+}
+
+.src-no {
+  flex: none;
+  width: 52px;
+  padding: 0 8px;
+  text-align: right;
+  color: #8c8c8c;
+  user-select: none;
+}
+
+.src-text {
+  padding-right: 16px;
+  color: #262626;
+}
+
+.src-line.is-symbol .src-no {
+  color: #2f54eb;
+  font-weight: 600;
+}
+
+/* ---------- 分布条形 ---------- */
+.dist-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.dist-label {
+  flex: none;
+  width: 110px;
+  font-size: 12px;
+  color: #595959;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dist-track {
+  flex: 1;
+  height: 12px;
+  border-radius: 6px;
+  background: #f0f0f0;
+  overflow: hidden;
+}
+
+.dist-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.3s ease;
+}
+
+.dist-count {
+  flex: none;
+  width: 64px;
+  text-align: right;
+  font-size: 12px;
+  color: #262626;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 日志尾部 ---------- */
+.log-tail {
+  max-height: 132px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 8px;
+  background: #0b1021;
+  color: #9fb3c8;
+  border-radius: 6px;
+  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* ---------- 调用图 ---------- */
+.graph-container {
+  height: 420px;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: #595959;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.legend-line {
+  width: 18px;
+  height: 0;
+  border-top: 2px solid;
+}
