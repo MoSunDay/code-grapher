@@ -59,7 +59,7 @@ pub async fn resolve_by_name(conn: &Connection, repo_id: i64) -> Result<u64> {
         "UPDATE call_edges SET callee_id = (
              SELECT s.id FROM symbols s
              WHERE s.repo_id = call_edges.repo_id
-               AND s.name = call_edges.callee_name
+               AND (s.name = call_edges.callee_name OR s.qual_path = call_edges.callee_name)
                AND s.kind IN ('function','method','closure')
          )
          WHERE repo_id = ?1 AND callee_id IS NULL
@@ -67,7 +67,7 @@ pub async fn resolve_by_name(conn: &Connection, repo_id: i64) -> Result<u64> {
            AND (
              SELECT COUNT(*) FROM symbols s2
              WHERE s2.repo_id = ?1
-               AND s2.name = call_edges.callee_name
+               AND (s2.name = call_edges.callee_name OR s2.qual_path = call_edges.callee_name)
                AND s2.kind IN ('function','method','closure')
            ) = 1",
         params![repo_id],
