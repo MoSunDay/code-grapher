@@ -26,7 +26,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal"] }
 axum = { version = "0.8", features = ["ws"] }
-tower-http = { version = "0.7", features = ["cors", "trace"] }
+tower-http = { version = "0.7", features = ["cors", "trace", "fs"] }
 libsql = "0.10"
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"

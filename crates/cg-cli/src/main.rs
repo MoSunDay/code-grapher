@@ -160,6 +160,7 @@ async fn local_dispatch(conn: libsql::Connection, sel: Option<&str>, cmd: Cmd) -
                 port,
                 watch: !no_watch,
                 analyzer: !no_analyzer,
+                web_dist: cg_server::state::default_web_dist(),
             };
             cg_server::run(cfg).await
         }

@@ -32,7 +32,14 @@ pub async fn run(cfg: ServerConfig) -> Result<()> {
         cg_analyzer::spawn_scheduler(db.clone(), client, analyzer_cfg);
     }
 
-    let app = api::router(state.clone());
+    let mut app = api::router(state.clone());
+    if let Some(dist) = &cfg.web_dist {
+        let index = dist.join("index.html");
+        let spa = tower_http::services::ServeDir::new(dist)
+            .fallback(tower_http::services::ServeFile::new(index));
+        app = app.fallback_service(spa);
+        tracing::info!(dist = %dist.display(), "serving web UI at /");
+    }
     let addr = format!("0.0.0.0:{}", cfg.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "code-grapher server listening");
