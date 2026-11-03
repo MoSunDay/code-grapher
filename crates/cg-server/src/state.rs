@@ -12,6 +12,8 @@ pub struct ServerConfig {
     pub port: u16,
     pub watch: bool,
     pub analyzer: bool,
+    /// Built SPA directory served at `/` (web/dist); empty disables static hosting.
+    pub web_dist: Option<std::path::PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -21,8 +23,19 @@ impl Default for ServerConfig {
             port: 7800,
             watch: true,
             analyzer: true,
+            web_dist: default_web_dist(),
         }
     }
+}
+
+/// `CG_WEB_DIST` override, else `web/dist` if it exists, else None.
+pub fn default_web_dist() -> Option<std::path::PathBuf> {
+    if let Ok(p) = std::env::var("CG_WEB_DIST") {
+        let pb = std::path::PathBuf::from(p);
+        return if pb.is_dir() { Some(pb) } else { None };
+    }
+    let d = std::path::PathBuf::from("web/dist");
+    d.is_dir().then_some(d)
 }
 
 #[derive(Clone)]

@@ -8,6 +8,7 @@ fn main() -> anyhow::Result<()> {
         port: parse_arg("--port").and_then(|v| v.parse().ok()).unwrap_or(7800),
         watch: !has_flag("--no-watch"),
         analyzer: !has_flag("--no-analyzer"),
+        web_dist: cg_server::state::default_web_dist(),
     };
     tracing_subscriber::fmt()
         .with_env_filter(

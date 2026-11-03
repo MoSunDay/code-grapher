@@ -28,8 +28,16 @@ code-grapher query symbols      # 查询图谱（files | symbols | calls）
 
 # 守护服务模式（REST + WS + 自动调度 + 文件监听）
 code-grapher serve --port 7800
-cd web && npm run dev         # 前端 dev proxy -> 127.0.0.1:7800
 ```
+
+### 前端访问入口
+
+- **生产模式（推荐）**：先构建一次 `cd web && npm run build`，之后在仓库根目录
+  `code-grapher serve`，浏览器直接打开 **http://localhost:7800** ——后端自动托管
+  `web/dist`（SPA 路由 `/functions`、`/repos/:id` 等均可直达）。
+  静态目录可用 `CG_WEB_DIST=/path/to/dist` 覆盖；目录不存在时仅提供 API。
+- **开发模式**：`cd web && npm run dev` → **http://localhost:5173**（`/api`、`/ws`
+  代理到 `127.0.0.1:7800`，热更新）。
 
 ## 环境变量（零硬编码凭证）
 
