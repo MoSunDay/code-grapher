@@ -119,7 +119,7 @@ async fn unique_symbol_by_name(conn: &Connection, repo_id: i64, name: &str) -> O
     let hits = symbols::search_candidates(conn, repo_id, name, 10)
         .await
         .unwrap_or_default();
-    let exact: Vec<&SymbolRow> = hits.iter().filter(|s| s.name == name).collect();
+    let exact: Vec<&SymbolRow> = hits.iter().filter(|s| s.name == name || s.qual_path == name).collect();
     match exact.as_slice() {
         [only] => Some(only.id),
         _ => None,
@@ -177,18 +177,29 @@ pub async fn run_once(
         if batch.is_empty() {
             break;
         }
-        for task in &batch {
-            match run_task(conn, client, cfg, task).await {
-                Ok(s) => summaries.push(s),
-                Err(e) => {
-                    tracing::warn!(task = task.id, error = %e, "task failed");
-                    tasks::fail(conn, task.id, &format!("{e:#}"), cfg.max_attempts).await?;
+        let take = (max_tasks - done).min(batch.len());
+        let mut handles = Vec::with_capacity(take);
+        for task in batch.into_iter().take(take) {
+            let conn = conn.clone();
+            let client = client.clone();
+            let cfg = cfg.clone();
+            handles.push(tokio::spawn(async move {
+                match run_task(&conn, &client, &cfg, &task).await {
+                    Ok(s) => Ok(s),
+                    Err(e) => {
+                        tracing::warn!(task = task.id, error = %e, "task failed");
+                        let _ = tasks::fail(&conn, task.id, &format!("{e:#}"), cfg.max_attempts).await;
+                        Err(task.id)
+                    }
                 }
+            }));
+        }
+        for h in handles {
+            match h.await {
+                Ok(Ok(s)) => summaries.push(s),
+                _ => {}
             }
             done += 1;
-            if done >= max_tasks {
-                break;
-            }
         }
     }
     Ok(summaries)

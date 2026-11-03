@@ -83,6 +83,7 @@ KNOWN SYMBOLS in this repository (candidates for resolution):
 {candidates}
 
 Rules:
+- Answer DIRECTLY from the context below; do NOT read files, run commands, or use any tools.
 - Only include calls MADE BY the target function (directly or via the values it passes around).
 - Prefer callee_name matching a KNOWN SYMBOL name exactly; otherwise use the name as written in code.
 - confidence: 0.0-1.0.
