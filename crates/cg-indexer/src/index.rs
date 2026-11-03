@@ -37,6 +37,14 @@ pub async fn index_repo(
 ) -> anyhow::Result<IndexOutcome> {
     let started = std::time::Instant::now();
     let run_id = runs::start(conn, repo.id, trigger).await?;
+    // close out runs left 'running' by a previously killed process
+    let _ = conn
+        .execute(
+            "UPDATE index_runs SET status = 'failed', finished_at = datetime('now')
+             WHERE repo_id = ?1 AND status = 'running' AND id != ?2",
+            libsql::params![repo.id, run_id],
+        )
+        .await;
     let root = std::path::Path::new(&repo.path);
     let scanned = scan_repo(root)?;
 
@@ -166,6 +174,14 @@ async fn index_selected(
 ) -> anyhow::Result<IndexOutcome> {
     let started = std::time::Instant::now();
     let run_id = runs::start(conn, repo.id, trigger).await?;
+    // close out runs left 'running' by a previously killed process
+    let _ = conn
+        .execute(
+            "UPDATE index_runs SET status = 'failed', finished_at = datetime('now')
+             WHERE repo_id = ?1 AND status = 'running' AND id != ?2",
+            libsql::params![repo.id, run_id],
+        )
+        .await;
     let mut n_symbols = 0i64;
     let mut n_edges = 0i64;
     for f in &selected {

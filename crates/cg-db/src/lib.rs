@@ -22,6 +22,7 @@ pub async fn open_local(path: &std::path::Path) -> Result<Connection> {
         .context("open local libsql database")?;
     let conn = db.connect()?;
     conn.execute("PRAGMA foreign_keys = ON", ()).await?;
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;").await?;
     Ok(conn)
 }
 
