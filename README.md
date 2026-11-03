@@ -24,7 +24,7 @@ cargo build --workspace && cargo test --workspace
 code-grapher repo add --name demo /path/to/repo
 code-grapher index            # 增量索引；--full 全量重扫
 code-grapher analyze --limit 20   # LLM 补齐隐藏调用（需 OPENCODER_* 环境变量）
-code-grapher stats            # 汇总
+code-grapher query symbols      # 查询图谱（files | symbols | calls）
 
 # 守护服务模式（REST + WS + 自动调度 + 文件监听）
 code-grapher serve --port 7800
