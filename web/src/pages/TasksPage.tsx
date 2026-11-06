@@ -1,6 +1,6 @@
 import { RedoOutlined } from '@ant-design/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Popconfirm, Select, Space, Table, Tag, Tooltip, Typography } from 'antd'
+import { App, Button, Empty, Popconfirm, Select, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -99,33 +99,53 @@ export default function TasksPage(): ReactNode {
   ]
 
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div>
       <QueryErrorAlert error={query.error} context="加载任务列表" />
-      <Card
-        size="small"
-        title={`任务（${tasks.length}）`}
-        extra={
-          <Select<TaskStatus>
-            allowClear
-            placeholder="状态（全部）"
-            style={{ minWidth: 160 }}
-            value={status}
-            options={STATUS_OPTIONS}
-            onChange={(value) => setStatus(value)}
-          />
-        }
-      >
-        <Table
-          rowKey="id"
-          size="small"
-          columns={columns}
-          dataSource={tasks}
-          loading={query.isLoading}
-          pagination={{ pageSize: 20, showSizeChanger: false }}
-          locale={{ emptyText: '暂无任务' }}
+      <div className="page-head">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Tasks
+        </Typography.Title>
+        <Select<TaskStatus>
+          allowClear
+          placeholder="状态（全部）"
+          style={{ minWidth: 160 }}
+          value={status}
+          options={STATUS_OPTIONS}
+          onChange={(value) => setStatus(value)}
         />
-      </Card>
-      {repoId !== null ? <UnresolvedEdges repoId={repoId} /> : null}
-    </Space>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          LLM 分析任务与人审队列
+        </Typography.Text>
+      </div>
+      <Tabs
+        defaultActiveKey="tasks"
+        items={[
+          {
+            key: 'tasks',
+            label: `分析任务（${tasks.length}）`,
+            children: (
+              <Table
+                rowKey="id"
+                size="small"
+                columns={columns}
+                dataSource={tasks}
+                loading={query.isLoading}
+                pagination={{
+                  pageSize: 20,
+                  showSizeChanger: false,
+                  showTotal: (total) => `共 ${total} 项`,
+                }}
+                locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无任务" /> }}
+              />
+            ),
+          },
+          {
+            key: 'review',
+            label: '人审边',
+            children: repoId !== null ? <UnresolvedEdges repoId={repoId} /> : null,
+          },
+        ]}
+      />
+    </div>
   )
 }

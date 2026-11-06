@@ -60,8 +60,8 @@ export function AppLayout(): ReactNode {
             alignItems: 'center',
             justifyContent: 'space-between',
             padding: '0 16px',
-            background: '#fff',
-            borderBottom: '1px solid #f0f0f0',
+            background: '#161b22',
+            borderBottom: '1px solid #30363d',
           }}
         >
           <RepoSelector />

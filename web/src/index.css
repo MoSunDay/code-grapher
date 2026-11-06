@@ -7,24 +7,75 @@ body,
 
 body {
   font-family:
-    -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', 'PingFang SC',
+    'Microsoft YaHei', monospace;
 }
 
 .sider-brand {
-  height: 56px;
+  height: 48px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid #30363d;
+}
+
+/* ---------- 页头（opencode #top 风格：单行、无卡片） ---------- */
+.page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #30363d;
+  margin-bottom: 16px;
+}
+
+/* ---------- 扁平面板（替代卡片嵌套） ---------- */
+.flat-panel {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 12px 16px;
+}
+
+.flat-panel-title {
+  font-size: 12px;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+/* ---------- 指标块（无卡片边框堆叠） ---------- */
+.metric-tile {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+.metric-label {
+  font-size: 12px;
+  color: #8b949e;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.metric-value {
+  font-size: 24px;
+  line-height: 1.4;
+  color: #e6edf3;
 }
 
 /* ---------- 源码查看器 ---------- */
 .src-viewer {
   margin: 0;
   padding: 8px 0;
-  background: #fafafa;
-  border: 1px solid #f0f0f0;
+  background: #0d1117;
+  border: 1px solid #30363d;
   border-radius: 6px;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 12px;
@@ -38,7 +89,7 @@ body {
 }
 
 .src-line:hover {
-  background: #f0f5ff;
+  background: rgba(56, 139, 253, 0.12);
 }
 
 .src-no {
@@ -46,17 +97,17 @@ body {
   width: 52px;
   padding: 0 8px;
   text-align: right;
-  color: #8c8c8c;
+  color: #6e7681;
   user-select: none;
 }
 
 .src-text {
   padding-right: 16px;
-  color: #262626;
+  color: #e6edf3;
 }
 
 .src-line.is-symbol .src-no {
-  color: #2f54eb;
+  color: #58a6ff;
   font-weight: 600;
 }
 
@@ -72,7 +123,7 @@ body {
   flex: none;
   width: 110px;
   font-size: 12px;
-  color: #595959;
+  color: #8b949e;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -80,57 +131,61 @@ body {
 
 .dist-track {
   flex: 1;
-  height: 12px;
-  border-radius: 6px;
-  background: #f0f0f0;
+  height: 8px;
+  background: #21262d;
+  border-radius: 4px;
   overflow: hidden;
 }
 
 .dist-fill {
   height: 100%;
-  border-radius: 6px;
-  transition: width 0.3s ease;
+  border-radius: 4px;
+  transition: width 0.3s;
 }
 
 .dist-count {
   flex: none;
-  width: 64px;
+  min-width: 48px;
   text-align: right;
   font-size: 12px;
-  color: #262626;
-  font-variant-numeric: tabular-nums;
+  color: #e6edf3;
 }
 
 /* ---------- 日志尾部 ---------- */
 .log-tail {
-  max-height: 132px;
-  overflow: auto;
   margin: 8px 0 0;
-  padding: 8px;
-  background: #0b1021;
-  color: #9fb3c8;
+  padding: 8px 12px;
+  background: #0d1117;
+  border: 1px solid #30363d;
   border-radius: 6px;
-  font-family: 'SFMono-Regular', Consolas, Menlo, monospace;
+  color: #8b949e;
   font-size: 12px;
-  line-height: 18px;
+  line-height: 1.7;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-tail.is-full {
+  max-height: 70vh;
 }
 
 /* ---------- 调用图 ---------- */
 .graph-container {
   height: 420px;
-  border: 1px solid #f0f0f0;
+  border: 1px solid #30363d;
   border-radius: 6px;
-  background: #fff;
+  background: #0d1117;
 }
 
 .graph-legend {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+  gap: 14px;
   margin-top: 8px;
   font-size: 12px;
-  color: #595959;
+  color: #8b949e;
 }
 
 .legend-item {

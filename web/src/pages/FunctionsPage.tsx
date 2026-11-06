@@ -1,4 +1,4 @@
-import { Card, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd'
+import { Empty, Input, Select, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
@@ -99,7 +99,7 @@ export default function FunctionsPage(): ReactNode {
   return (
     <>
       <QueryErrorAlert error={query.error} context="加载符号列表" />
-      <Card size="small">
+      <div>
         <Space wrap style={{ marginBottom: 16 }}>
           <Select<SymbolKind>
             allowClear
@@ -145,7 +145,7 @@ export default function FunctionsPage(): ReactNode {
             emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无符号" />,
           }}
         />
-      </Card>
+      </div>
       <SymbolDrawer symbolId={openId} onClose={closeSymbol} onSelect={openSymbol} />
     </>
   )

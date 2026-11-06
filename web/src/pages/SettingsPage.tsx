@@ -1,8 +1,9 @@
-import { Alert, Badge, Card, Descriptions, Space, Table, Tag, Typography } from 'antd'
+import { useQuery } from '@tanstack/react-query'
+import { Alert, Badge, Descriptions, Skeleton, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { ReactNode } from 'react'
+import { getConfig } from '../api/config'
 import { QueryErrorAlert } from '../components/QueryErrorAlert'
-import { useConfig } from '../hooks/queries'
 
 interface EnvDoc {
   name: string
@@ -37,76 +38,99 @@ const envColumns: ColumnsType<EnvDoc> = [
 ]
 
 export default function SettingsPage(): ReactNode {
-  const query = useConfig()
+  const query = useQuery({ queryKey: ['config'], queryFn: getConfig })
   const config = query.data
 
+  const configPanel =
+    config === undefined ? (
+      query.isLoading ? (
+        <Skeleton active paragraph={{ rows: 6 }} />
+      ) : null
+    ) : (
+      <Descriptions
+        bordered
+        size="small"
+        column={{ xs: 1, sm: 2 }}
+        items={[
+          {
+            key: 'mode',
+            label: '数据库模式',
+            children:
+              config.db.mode === 'remote' ? (
+                <Tag color="geekblue">remote（Turso）</Tag>
+              ) : (
+                <Tag>local（libsql 文件）</Tag>
+              ),
+          },
+          {
+            key: 'url_set',
+            label: 'opencode server',
+            children: config.opencode.url_set ? (
+              <Badge status="success" text="URL 已配置" />
+            ) : (
+              <Badge status="warning" text="URL 未配置" />
+            ),
+          },
+          {
+            key: 'concurrency',
+            label: 'LLM 并发数',
+            children: String(config.opencode.concurrency),
+          },
+          {
+            key: 'version',
+            label: '后端版本',
+            children: (
+              <Typography.Text code>{config.version === '' ? '-' : config.version}</Typography.Text>
+            ),
+          },
+        ]}
+      />
+    )
+
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div>
       <QueryErrorAlert error={query.error} context="加载服务配置" />
-      <Card title="服务配置（只读，GET /api/config）" size="small" loading={query.isLoading}>
-        {config !== undefined ? (
-          <Descriptions
-            bordered
-            size="small"
-            column={{ xs: 1, sm: 2 }}
-            items={[
-              {
-                key: 'mode',
-                label: '数据库模式',
-                children:
-                  config.db.mode === 'remote' ? (
-                    <Tag color="geekblue">remote（Turso）</Tag>
-                  ) : (
-                    <Tag>local（libsql 文件）</Tag>
-                  ),
-              },
-              {
-                key: 'url_set',
-                label: 'opencode server',
-                children: config.opencode.url_set ? (
-                  <Badge status="success" text="URL 已配置" />
-                ) : (
-                  <Badge status="warning" text="URL 未配置" />
-                ),
-              },
-              {
-                key: 'concurrency',
-                label: 'LLM 并发数',
-                children: String(config.opencode.concurrency),
-              },
-              {
-                key: 'version',
-                label: '后端版本',
-                children: (
-                  <Typography.Text code>
-                    {config.version === '' ? '-' : config.version}
-                  </Typography.Text>
-                ),
-              },
-            ]}
-          />
-        ) : null}
-      </Card>
-      <Card title="环境变量说明" size="small">
-        <Alert
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-          message="密钥仅存在于后端进程环境变量中，API 不回显任何凭证；前端同样不持有任何密钥。"
-        />
-        <Table
-          size="small"
-          pagination={false}
-          rowKey="name"
-          dataSource={ENV_DOCS}
-          columns={envColumns}
-        />
-        <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
-          开发模式下，Vite 将 <Typography.Text code>/api</Typography.Text> 与{' '}
-          <Typography.Text code>/ws</Typography.Text> 代理到{' '}
-          <Typography.Text code>http://127.0.0.1:7800</Typography.Text>（见 vite.config.ts）。
-        </Typography.Paragraph>
-      </Card>
-    </Space>
+      <div className="page-head">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Settings
+        </Typography.Title>
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          只读视图 · GET /api/config
+        </Typography.Text>
+      </div>
+      <Tabs
+        defaultActiveKey="server"
+        items={[
+          { key: 'server', label: '服务配置', children: configPanel },
+          {
+            key: 'env',
+            label: '环境变量说明',
+            children: (
+              <div className="flat-panel">
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 12 }}
+                  message="密钥仅存在于后端进程环境变量中，API 不回显任何凭证；前端同样不持有任何密钥。"
+                />
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey="name"
+                  dataSource={ENV_DOCS}
+                  columns={envColumns}
+                />
+                <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0 }}>
+                  开发模式下，Vite 将 <Typography.Text code>/api</Typography.Text> 与{' '}
+                  <Typography.Text code>/ws</Typography.Text> 代理到{' '}
+                  <Typography.Text code>http://127.0.0.1:7800</Typography.Text>
+                  （见 vite.config.ts）。
+                </Typography.Paragraph>
+              </div>
+            ),
+          },
+        ]}
+      />
+    </div>
   )
 }

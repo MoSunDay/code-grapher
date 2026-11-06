@@ -48,9 +48,9 @@ export default function FilesPage(): ReactNode {
       </Col>
       <Col xs={24} md={14} lg={16}>
         {selected === null ? (
-          <Card size="small">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 320 }}>
             <Empty description="在左侧选择一个文件，查看源码与符号" />
-          </Card>
+          </div>
         ) : (
           <FileDetail
             file={selected}

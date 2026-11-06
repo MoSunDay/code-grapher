@@ -1,6 +1,6 @@
 import { CheckOutlined, StopOutlined } from '@ant-design/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Empty, List, Space, Spin, Tag, Typography } from 'antd'
+import { App, Button, Empty, List, Space, Spin, Tag, Typography } from 'antd'
 import type { ReactNode } from 'react'
 import type { EdgeView, Id } from '../../api/types'
 import { confirmEdge, dismissEdge } from '../../api/tasks'
@@ -29,11 +29,14 @@ export function UnresolvedEdges({ repoId }: Props): ReactNode {
   })
 
   return (
-    <Card
-      size="small"
-      title="人审：未通过校验的 LLM 调用边（edges/unresolved）"
-      extra={query.isFetching ? <Spin size="small" /> : <Tag>{edges.length} 条待审</Tag>}
-    >
+    <section className="flat-panel">
+      <div className="flat-panel-title">
+        未通过校验的 LLM 调用边（edges/unresolved）
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+          {query.isFetching ? <Spin size="small" /> : null}
+          <Tag style={{ marginInlineEnd: 0 }}>{edges.length} 条待审</Tag>
+        </span>
+      </div>
       {edges.length === 0 ? (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="没有待人审的调用边" />
       ) : (
@@ -87,6 +90,6 @@ export function UnresolvedEdges({ repoId }: Props): ReactNode {
           )}
         />
       )}
-    </Card>
+    </section>
   )
 }

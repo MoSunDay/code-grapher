@@ -3,6 +3,7 @@ import type { Graph } from '@antv/g6'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Id } from '../../api/types'
 import { useCallGraph } from '../../hooks/queries'
+import { CENTER_NODE_COLOR, EDGE_SOURCE_META } from '../../theme'
 import { mountCallGraph } from './g6-graph'
 
 export function CallGraphPanel({ symbolId }: { symbolId: Id }): ReactNode {
@@ -46,7 +47,7 @@ export function CallGraphPanel({ symbolId }: { symbolId: Id }): ReactNode {
       <div ref={containerRef} className="graph-container" />
       <div className="graph-legend">
         <span className="legend-item">
-          <span className="legend-dot" style={{ background: '#2f54eb' }} />
+          <span className="legend-dot" style={{ background: CENTER_NODE_COLOR }} />
           中心符号
         </span>
         <span className="legend-item">
@@ -54,7 +55,7 @@ export function CallGraphPanel({ symbolId }: { symbolId: Id }): ReactNode {
           AST 边
         </span>
         <span className="legend-item">
-          <span className="legend-line" style={{ borderColor: '#722ed1' }} />
+          <span className="legend-line" style={{ borderColor: EDGE_SOURCE_META.llm.line }} />
           LLM 边
         </span>
         <span className="legend-item">

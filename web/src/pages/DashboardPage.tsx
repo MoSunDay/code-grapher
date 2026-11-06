@@ -1,7 +1,7 @@
 import { PlayCircleOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Card, Empty, Popconfirm, Space } from 'antd'
-import { useState, type ReactNode } from 'react'
+import { App, Button, Empty, Popconfirm, Space, Tabs, Typography } from 'antd'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { triggerAnalyze, triggerIndex } from '../api/repos'
 import { QueryErrorAlert } from '../components/QueryErrorAlert'
 import { requireRepoId, useRepoStats } from '../hooks/queries'
@@ -46,28 +46,32 @@ export default function DashboardPage(): ReactNode {
 
   const indexMutation = useMutation({
     mutationFn: (full: boolean) => triggerIndex(requireRepoId(repoId), full),
-    onSuccess: (result, full) => {
-      setProgress({ done: 0, total: 0, phase: 'starting' })
-      message.success(`已触发${full ? '全量' : '增量'}索引（run_id=${String(result.run_id)}）`)
-    },
+    onSuccess: () => message.success('索引任务已触发'),
   })
   const analyzeMutation = useMutation({
     mutationFn: () => triggerAnalyze(requireRepoId(repoId)),
     onSuccess: (result) => message.success(`已入队 ${result.enqueued} 个 LLM 分析任务`),
   })
 
+  const logRef = useRef<HTMLPreElement | null>(null)
+  useEffect(() => {
+    const el = logRef.current
+    if (el !== null) el.scrollTop = el.scrollHeight
+  }, [logs])
+
   if (!reposLoading && repos.length === 0) {
-    return (
-      <Card>
-        <Empty description="尚未添加仓库：点击顶部「添加」按钮注册一个本地仓库路径" />
-      </Card>
-    )
+    return <Empty description="尚未添加仓库：点击顶部「添加」按钮注册一个本地仓库路径" />
   }
 
+  const runs = statsQuery.data?.recent_runs ?? []
+
   return (
-    <Space direction="vertical" size={16} style={{ width: '100%' }}>
+    <div>
       <QueryErrorAlert error={statsQuery.error} context="加载仓库统计" />
-      <Card title="索引与分析" size="small">
+      <div className="page-head">
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Dashboard
+        </Typography.Title>
         <Space wrap>
           <Button
             type="primary"
@@ -103,13 +107,38 @@ export default function DashboardPage(): ReactNode {
             LLM 分析
           </Button>
         </Space>
-        <IndexProgressPanel progress={progress} logs={logs} />
-      </Card>
-      <StatCards stats={statsQuery.data} loading={statsQuery.isLoading} />
-      <DistributionCards stats={statsQuery.data} />
-      <Card title="最近索引运行（recent_runs）" size="small">
-        <RecentRunsTable runs={statsQuery.data?.recent_runs ?? []} />
-      </Card>
-    </Space>
+      </div>
+      <IndexProgressPanel progress={progress} logs={logs} />
+      <Tabs
+        defaultActiveKey="overview"
+        items={[
+          {
+            key: 'overview',
+            label: '概览',
+            children: (
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <StatCards stats={statsQuery.data} loading={statsQuery.isLoading} />
+                <DistributionCards stats={statsQuery.data} />
+              </Space>
+            ),
+          },
+          {
+            key: 'runs',
+            label: `运行历史（${runs.length}）`,
+            children: <RecentRunsTable runs={runs} />,
+          },
+          {
+            key: 'logs',
+            label: '事件日志',
+            children:
+              logs.length === 0 ? (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无事件（等待索引/分析触发）" />
+              ) : (
+                <pre ref={logRef} className="log-tail is-full">{logs.join('\n')}</pre>
+              ),
+          },
+        ]}
+      />
+    </div>
   )
 }
