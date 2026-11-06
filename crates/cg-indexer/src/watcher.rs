@@ -1,10 +1,20 @@
 //! File watching with debounce; emits changed file paths on a tokio channel.
 
-use notify::RecursiveMode;
+use notify::{event::ModifyKind, EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+/// True for events implying actual data change (create/remove/rename/write);
+/// false for pure reads or metadata-only updates (atime, chmod), which must
+/// not trigger re-parsing.
+fn is_data_change(kind: &EventKind) -> bool {
+    !matches!(
+        kind,
+        EventKind::Access(_) | EventKind::Modify(ModifyKind::Metadata(_))
+    )
+}
 
 /// Spawn a watcher over `root`. Every debounced change batch is flattened into
 /// individual paths sent to the returned receiver. Stops when the sender is dropped.
@@ -29,6 +39,9 @@ pub fn spawn_watcher(root: &Path, debounce: Duration) -> anyhow::Result<mpsc::Un
             match result {
                 Ok(events) => {
                     for ev in events {
+                        if !is_data_change(&ev.event.kind) {
+                            continue;
+                        }
                         for path in ev.event.paths {
                             let _ = tx.send(path);
                         }

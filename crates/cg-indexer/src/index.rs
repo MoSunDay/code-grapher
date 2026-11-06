@@ -184,14 +184,25 @@ async fn index_selected(
         .await;
     let mut n_symbols = 0i64;
     let mut n_edges = 0i64;
+    let mut unchanged = 0i64;
     for f in &selected {
         let Ok(content) = tokio::fs::read_to_string(&f.abs_path).await else {
             continue;
         };
+        let hash = fnv1a_hex(content.as_bytes());
+        // Content unchanged since last parse: skip symbol rebuild so that
+        // existing symbols, call edges and analysis tasks survive touch/atime
+        // events and spurious watcher triggers.
+        if let Some(prev) = files::get_by_path(conn, repo.id, &f.rel_path).await? {
+            if prev.hash.as_deref() == Some(hash.as_str()) {
+                unchanged += 1;
+                continue;
+            }
+        }
         let Ok(parsed) = parse(f.lang, &content) else {
             continue;
         };
-        let file_id = files::upsert(conn, repo.id, &f.rel_path, Some(f.lang.as_str()), &fnv1a_hex(content.as_bytes()), f.mtime, parsed.loc).await?;
+        let file_id = files::upsert(conn, repo.id, &f.rel_path, Some(f.lang.as_str()), &hash, f.mtime, parsed.loc).await?;
         let qual_ids = symbols::replace_file_symbols(conn, repo.id, file_id, &parsed.symbols).await?;
         let new_edges: Vec<NewEdge> = parsed
             .calls
@@ -217,7 +228,7 @@ async fn index_selected(
     let outcome = IndexOutcome {
         run_id,
         files_scanned: selected.len() as i64,
-        files_changed: selected.len() as i64,
+        files_changed: (selected.len() as i64) - unchanged,
         files_removed: 0,
         symbols: n_symbols,
         edges: n_edges,
