@@ -1,0 +1,9 @@
+target/debug
+target/tmp
+web/node_modules
+.git
+code-grapher.db*
+*.db
+*.db-wal
+*.db-shm
+.env

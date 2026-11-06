@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-grapher
+  labels:
+    app: code-grapher
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate        # hostPath + 本地镜像，避免新旧 Pod 争用同一 db 文件
+  selector:
+    matchLabels:
+      app: code-grapher
+  template:
+    metadata:
+      labels:
+        app: code-grapher
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: m          # hostNetwork + hostPath 绑定本节点
+      hostNetwork: true                    # 直接用宿主网络：7800 对外 + 127.0.0.1:34096 opencode
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: cg-server
+          image: code-grapher:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: CG_DB_PATH
+              value: /data2/cg-data/code-grapher.db
+            - name: CG_WEB_DIST
+              value: /app/web/dist
+            - name: OPENCODER_SERVER_URL
+              value: http://127.0.0.1:34096
+            - name: CG_ANALYZE_CONCURRENCY
+              value: "2"
+            - name: OPENCODER_API_KEY      # 来自 kubectl create secret（不入库）
+              valueFrom:
+                secretKeyRef:
+                  name: opencode-creds
+                  key: OPENCODER_API_KEY
+          ports:
+            - name: http
+              containerPort: 7800
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 7800
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 7800
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          volumeMounts:
+            - name: data
+              mountPath: /data2/cg-data       # libsql 库文件（WAL）持久化
+            - name: repo
+              mountPath: /data2/code-grapher   # 被索引的源码仓库（dogfood）
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 1Gi
+      volumes:
+        - name: data
+          hostPath:
+            path: /data2/cg-data
+            type: DirectoryOrCreate
+        - name: repo
+          hostPath:
+            path: /data2/code-grapher
+            type: Directory
