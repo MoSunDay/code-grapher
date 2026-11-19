@@ -33,7 +33,7 @@ impl AnalyzerConfig {
         let mut cfg = AnalyzerConfig::default();
         if let Ok(v) = std::env::var("CG_ANALYZE_CONCURRENCY") {
             if let Ok(n) = v.parse::<usize>() {
-                cfg.concurrency = n.clamp(1, 16);
+                cfg.concurrency = n.clamp(0, 16); // 0 = 暂停消费（启动即暂停）
             }
         }
         if let Ok(v) = std::env::var("CG_ANALYZE_TIMEOUT_SECS") {
@@ -128,10 +128,20 @@ async fn unique_symbol_by_name(conn: &Connection, repo_id: i64, name: &str) -> O
 
 /// Long-running daemon loop: claims pending tasks (all repos) and executes
 /// them with bounded concurrency. Stops never; abort the JoinHandle to stop.
-pub fn spawn_scheduler(conn: Connection, client: OpencodeClient, cfg: AnalyzerConfig) -> tokio::task::JoinHandle<()> {
+pub fn spawn_scheduler(conn: Connection, client: OpencodeClient, cfg: AnalyzerConfig, concurrency: std::sync::Arc<std::sync::atomic::AtomicUsize>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        let mut last_logged: Option<usize> = None;
         loop {
-            let batch = tasks::claim(&conn, None, cfg.concurrency as i64)
+            let n = concurrency.load(std::sync::atomic::Ordering::Relaxed);
+            if last_logged != Some(n) {
+                tracing::info!(concurrency = n, "analyze concurrency level set");
+                last_logged = Some(n);
+            }
+            if n == 0 {
+                tokio::time::sleep(cfg.poll_interval).await;
+                continue;
+            }
+            let batch = tasks::claim(&conn, None, n as i64)
                 .await
                 .unwrap_or_default();
             if batch.is_empty() {

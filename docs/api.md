@@ -49,7 +49,8 @@
 - `GET /api/repos/{id}/stats` → `{totals:{files,symbols,edges,functions}, symbols_by_kind:{...}, edges_by_kind:{...}, edges_by_source:{ast,llm}, task_status:{pending,running,done,failed}, recent_runs:[IndexRun]}`
 
 ## Config（Settings 页）
-- `GET /api/config` → `{db:{mode:"local"|"remote"}, opencode:{url_set:bool, concurrency:N}, version}`（绝不回显密钥）
+- `GET /api/config` → `{db:{mode:"local"|"remote"}, opencode:{url_set:bool, concurrency:N, paused:bool}, version}`（绝不回显密钥）
+- `PUT /api/config` body `{analyze_concurrency:0..16}` → `{ok:true,analyze_concurrency,paused}`（运行时调整，0=暂停消费 pending 任务；running 任务自然跑完）
 
 ## WebSocket
 - `GET /ws/events`：JSON 文本帧

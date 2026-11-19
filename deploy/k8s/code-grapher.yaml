@@ -31,9 +31,9 @@ spec:
             - name: CG_WEB_DIST
               value: /app/web/dist
             - name: OPENCODER_SERVER_URL
-              value: http://127.0.0.1:34096
+              value: http://192.168.31.159:18081
             - name: CG_ANALYZE_CONCURRENCY
-              value: "2"
+              value: "0"
             - name: OPENCODER_API_KEY      # 来自 kubectl create secret（不入库）
               valueFrom:
                 secretKeyRef:

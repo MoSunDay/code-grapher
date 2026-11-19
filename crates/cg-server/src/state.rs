@@ -54,6 +54,8 @@ pub struct AppState {
     /// Repos currently being indexed (prevents concurrent double-runs).
     pub indexing: std::sync::Arc<Mutex<HashSet<i64>>>,
     pub cfg: ServerConfig,
+    /// Runtime-adjustable analyzer concurrency (0 = paused).
+    pub analyze_concurrency: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl AppState {
@@ -64,6 +66,9 @@ impl AppState {
             events,
             indexing: std::sync::Arc::new(Mutex::new(HashSet::new())),
             cfg,
+            analyze_concurrency: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
+                cg_analyzer::AnalyzerConfig::from_env().concurrency,
+            )),
         }
     }
 

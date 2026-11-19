@@ -25,11 +25,11 @@ pub async fn run(cfg: ServerConfig) -> Result<()> {
     if cfg.analyzer {
         let client = OpencodeClient::from_env();
         let analyzer_cfg = AnalyzerConfig::from_env();
-        tracing::info!(url = client.base_url(), concurrency = analyzer_cfg.concurrency, "analyzer scheduler started");
+        tracing::info!(url = client.base_url(), concurrency = state.analyze_concurrency.load(std::sync::atomic::Ordering::Relaxed), "analyzer scheduler started");
         if let Ok(n) = cg_db::tasks::reset_running(&db).await {
             if n > 0 { tracing::info!(n, "requeued stale running tasks"); }
         }
-        cg_analyzer::spawn_scheduler(db.clone(), client, analyzer_cfg);
+        cg_analyzer::spawn_scheduler(db.clone(), client, analyzer_cfg, state.analyze_concurrency.clone());
     }
 
     let mut app = api::router(state.clone());

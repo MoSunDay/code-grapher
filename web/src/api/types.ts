@@ -184,8 +184,14 @@ export interface RepoStatsPayload {
 
 export interface ServerConfig {
   db: { mode: 'local' | 'remote' }
-  opencode: { url_set: boolean; concurrency: number }
+  opencode: { url_set: boolean; concurrency: number; paused: boolean }
   version: string
+}
+
+export interface UpdateConfigResult {
+  ok: boolean
+  analyze_concurrency: number
+  paused: boolean
 }
 
 export interface IndexProgressEvent {
