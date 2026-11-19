@@ -1,232 +1,283 @@
-//! Git-backed lifecycle: draft -> diff -> approve -> stable.
+//! Branch-model lifecycle: draft on `mr/<name>` inside `docs/<name>/`,
+//! approve = merge into main.
 
-use cg_feature::ops::{self, ApproveParams, DraftOutcome, FeatureState};
+use cg_feature::ops::{self, DraftFile, DraftOutcome};
 use cg_feature::repo_id_from_git_url;
-use std::path::Path;
+use tempfile::TempDir;
 
-const GIT_URL: &str = "https://github.com/owner/repo.git";
+const URL: &str = "https://github.com/owner/repo.git";
 
-fn feature_json(name: &str, summary: &str) -> Vec<u8> {
-    serde_json::json!({
-        "name": name,
-        "function_entry": "cg_core::parse",
-        "request_chain": [],
-        "external_dependencies": [],
-        "function_summary": summary,
-        "children": []
-    })
-    .to_string()
-    .into_bytes()
+fn files(entries: &[(&str, &str)]) -> Vec<DraftFile> {
+    entries
+        .iter()
+        .map(|(path, content)| DraftFile {
+            path: path.to_string(),
+            content: content.to_string(),
+        })
+        .collect()
 }
 
-fn setup(name: &str) -> (tempfile::TempDir, String) {
-    let dir = tempfile::tempdir().unwrap();
-    let repo_id = repo_id_from_git_url(GIT_URL).unwrap();
-    ops::draft(dir.path(), &repo_id, &feature_json(name, "first"), None).unwrap();
+fn setup() -> (TempDir, String) {
+    let dir = TempDir::new().unwrap();
+    let repo_id = repo_id_from_git_url(URL).unwrap();
     (dir, repo_id)
 }
 
-#[test]
-fn draft_layout_has_no_version_dirs_or_index() {
-    let (dir, repo_id) = setup("AST 解析与领域模型");
-    let root = dir.path();
-    let json = root.join(&repo_id).join("AST 解析与领域模型").join("feature.json");
-    assert!(json.is_file());
-    // draft stage: only the feature directory; _changelog appears on approve.
-    let names = collect_dirs(&root.join(&repo_id));
-    assert_eq!(names, vec!["AST 解析与领域模型"]);
-    assert!(!root.join(&repo_id).join("index.json").exists());
-    assert!(!root.join(&repo_id).join("features").exists());
-    for entry in walk(&root.join(&repo_id)) {
-        let name = entry.file_name().to_string_lossy().into_owned();
-        assert!(!name.starts_with("draft."), "{name}");
-        assert!(!name.starts_with("verified"), "{name}");
-        assert!(!name.starts_with('v') || !name[1..].chars().all(|c| c.is_ascii_digit()), "{name}");
-    }
-}
+const NAME: &str = "AST解析与领域模型";
 
 #[test]
-fn uncommitted_is_draft_approved_is_stable() {
-    let (dir, repo_id) = setup("请求链路推断");
+fn draft_creates_open_mr_then_approve_merges() {
+    let (dir, repo_id) = setup();
     let root = dir.path();
-    assert_eq!(ops::list(root, &repo_id).unwrap()[0].state, FeatureState::Draft);
-    assert!(ops::diff(root, &repo_id, Some("请求链路推断")).unwrap().contains("请求链路推断"));
+
+    let outcome = ops::draft(
+        root,
+        &repo_id,
+        NAME,
+        &files(&[
+            ("docs/AST解析与领域模型/overview.md", "# 概览\n"),
+            ("docs/AST解析与领域模型/ast/index.json", "{\"nodes\":1}\n"),
+        ]),
+        None,
+    )
+    .unwrap();
+    let DraftOutcome::Updated { commit } = outcome else {
+        panic!("expected Updated");
+    };
+    assert!(!commit.is_empty());
+
+    let mrs = ops::mrs(root, &repo_id).unwrap();
+    assert_eq!(mrs.len(), 1);
+    assert_eq!(mrs[0].name, NAME);
+    assert_eq!(mrs[0].state, ops::MrState::Open);
+    assert_eq!(mrs[0].ahead, 1);
+    assert!(mrs[0].reviewer.is_none());
+
+    let diff = ops::diff(root, &repo_id, NAME).unwrap();
+    assert!(diff.contains("docs/AST解析与领域模型/overview.md"));
 
     let outcome = ops::approve(
         root,
         &repo_id,
-        "请求链路推断",
-        &ApproveParams { reviewer: "alice", note: Some("lgtm"), expected_hash: None },
+        NAME,
+        &ops::ApproveParams { reviewer: "alice", note: Some("looks good"), expected_tip: None },
     )
     .unwrap();
-    assert!(!outcome.commit.is_empty());
-    assert!(outcome.changelog.contains("_changelog/"));
-    assert!(outcome.changelog.contains("请求链路推断"));
+    assert!(!outcome.merge_commit.is_empty());
+    assert!(outcome.changelog.starts_with("_changelog/"));
 
-    assert_eq!(ops::list(root, &repo_id).unwrap()[0].state, FeatureState::Stable);
-    assert!(ops::diff(root, &repo_id, Some("请求链路推断")).unwrap().is_empty());
+    let mrs = ops::mrs(root, &repo_id).unwrap();
+    assert_eq!(mrs[0].state, ops::MrState::Merged);
+    assert_eq!(mrs[0].reviewer.as_deref(), Some("alice"));
+    assert_eq!(mrs[0].ahead, 0, "merged branch is contained in main");
+    assert_eq!(mrs[0].changelog.as_deref(), Some(outcome.changelog.as_str()));
 
-    let changelog = ops::read_changelog(root, &repo_id).unwrap();
-    assert_eq!(changelog.len(), 1);
-    assert!(changelog[0].markdown.contains("alice"));
-    assert!(changelog[0].markdown.contains("lgtm"));
-}
+    // main tree now holds the files with stable badges
+    let tree = ops::tree(root, &repo_id, None).unwrap();
+    assert!(tree
+        .iter()
+        .any(|f| f.path == "docs/AST解析与领域模型/overview.md" && f.state == ops::FileBadge::Stable));
 
-#[test]
-fn same_name_modified_is_a_new_draft_not_a_new_directory() {
-    let (dir, repo_id) = setup("AST");
-    let root = dir.path();
-    let second = ops::draft(root, &repo_id, &feature_json("AST", "second"), None).unwrap();
-    assert!(matches!(second, DraftOutcome::Created { .. }));
-    let identical = ops::draft(root, &repo_id, &feature_json("AST", "second"), None).unwrap();
-    assert_eq!(identical, DraftOutcome::Noop);
-    assert_eq!(ops::list(root, &repo_id).unwrap().len(), 1, "same name = same feature");
-    assert_eq!(ops::list(root, &repo_id).unwrap()[0].state, FeatureState::Draft);
-}
+    // changelog entry exists on main
+    let log = ops::changelog(root, &repo_id).unwrap();
+    assert_eq!(log.len(), 1);
+    assert!(log[0].markdown.contains("alice"));
 
-#[test]
-fn different_names_are_different_features() {
-    let (dir, repo_id) = setup("alpha");
-    let root = dir.path();
-    ops::draft(root, &repo_id, &feature_json("beta", "b"), None).unwrap();
-    let names: Vec<String> =
-        ops::list(root, &repo_id).unwrap().into_iter().map(|f| f.name).collect();
-    assert_eq!(names, vec!["alpha", "beta"]);
-}
-
-#[test]
-fn approve_commits_only_the_reviewed_paths() {
-    let (dir, repo_id) = setup("clean-feature");
-    let root = dir.path();
-    ops::draft(root, &repo_id, &feature_json("dirty-feature", "d"), None).unwrap();
-    std::fs::write(root.join(&repo_id).join("unrelated.txt"), b"stray").unwrap();
-
-    ops::approve(
-        root,
-        &repo_id,
-        "clean-feature",
-        &ApproveParams { reviewer: "bob", note: None, expected_hash: None },
-    )
-    .unwrap();
-
-    let committed = git_ls_files(root);
-    assert!(committed.contains(&format!("{repo_id}/clean-feature/feature.json")));
-    assert!(committed.iter().any(|p| p.contains("_changelog/") && p.contains("clean-feature")));
-    assert!(!committed.contains(&format!("{repo_id}/unrelated.txt")));
-    assert!(!committed.contains(&format!("{repo_id}/dirty-feature/feature.json")));
-    assert!(root.join(&repo_id).join("unrelated.txt").exists(), "stray file untouched");
-}
-
-#[test]
-fn approve_guards_hash_and_clean_state() {
-    let (dir, repo_id) = setup("guarded");
-    let root = dir.path();
+    // double approve is rejected
     let err = ops::approve(
         root,
         &repo_id,
-        "guarded",
-        &ApproveParams { reviewer: "a", note: None, expected_hash: Some("deadbeef") },
+        NAME,
+        &ops::ApproveParams { reviewer: "bob", note: None, expected_tip: None },
     )
     .unwrap_err();
-    assert!(err.to_string().contains("hash"), "{err}");
+    assert!(err.to_string().contains("already merged"));
+}
 
-    ops::approve(root, &repo_id, "guarded", &ApproveParams::default()).unwrap_err();
+#[test]
+fn identical_refresh_is_noop_and_changes_commit() {
+    let (dir, repo_id) = setup();
+    let root = dir.path();
+    let same = files(&[("docs/feature-x/a.md", "same\n")]);
+    ops::draft(root, &repo_id, "feature-x", &same, None).unwrap();
+    assert_eq!(
+        ops::draft(root, &repo_id, "feature-x", &same, None).unwrap(),
+        DraftOutcome::Noop
+    );
+    let changed = files(&[("docs/feature-x/a.md", "different\n")]);
+    let DraftOutcome::Updated { commit } =
+        ops::draft(root, &repo_id, "feature-x", &changed, None).unwrap()
+    else {
+        panic!("expected Updated");
+    };
+    let mrs = ops::mrs(root, &repo_id).unwrap();
+    assert_eq!(mrs[0].tip, commit);
+    assert_eq!(mrs[0].ahead, 2, "one initial + one refresh commit");
+}
+
+#[test]
+fn refresh_absorbs_main_but_never_deletes_other_mrs_docs() {
+    let (dir, repo_id) = setup();
+    let root = dir.path();
+    ops::draft(root, &repo_id, "one", &files(&[("docs/one/a.md", "1\n")]), None).unwrap();
+    ops::draft(
+        root,
+        &repo_id,
+        "two",
+        &files(&[("docs/two/b.md", "2\n"), ("docs/two/old.md", "x\n")]),
+        None,
+    )
+    .unwrap();
     ops::approve(
         root,
         &repo_id,
-        "guarded",
-        &ApproveParams { reviewer: "a", note: None, expected_hash: None },
+        "one",
+        &ops::ApproveParams { reviewer: "r1", note: None, expected_tip: None },
     )
     .unwrap();
-    let again = ops::approve(
+
+    // refresh "two" without old.md
+    ops::draft(root, &repo_id, "two", &files(&[("docs/two/b.md", "2\n")]), None).unwrap();
+    let tree = ops::tree(root, &repo_id, Some("two")).unwrap();
+    assert!(tree.iter().any(|f| f.path == "docs/one/a.md"), "branch absorbed main");
+    assert!(
+        tree.iter().any(|f| f.path == "docs/two/b.md" && f.state == ops::FileBadge::Draft),
+        "own changed file is draft"
+    );
+    assert!(
+        tree.iter().any(|f| f.path == "docs/one/a.md" && f.state == ops::FileBadge::Stable),
+        "other MR's file is stable"
+    );
+    assert!(!tree.iter().any(|f| f.path == "docs/two/old.md"), "stale file removed");
+
+    // approving "two" merges cleanly and keeps "one"'s docs on main
+    ops::approve(
         root,
         &repo_id,
-        "guarded",
-        &ApproveParams { reviewer: "a", note: None, expected_hash: None },
+        "two",
+        &ops::ApproveParams { reviewer: "r2", note: None, expected_tip: None },
     )
-    .unwrap_err();
-    assert!(again.to_string().contains("stable"), "{again}");
+    .unwrap();
+    let tree = ops::tree(root, &repo_id, None).unwrap();
+    assert!(tree.iter().any(|f| f.path == "docs/one/a.md"), "other MR docs survive");
+    assert!(tree.iter().any(|f| f.path == "docs/two/b.md"));
+    let changelog = ops::changelog(root, &repo_id).unwrap();
+    assert_eq!(changelog.len(), 2);
+    assert!(changelog.iter().any(|e| e.file.contains("-two-")));
 }
 
 #[test]
-fn expected_name_mismatch_fails_before_writing() {
-    let (dir, repo_id) = setup("real-name");
-    let err = ops::draft(
-        dir.path(),
-        &repo_id,
-        &feature_json("real-name", "v2"),
-        Some("other-name"),
-    )
-    .unwrap_err();
-    assert!(err.to_string().contains("expected feature name"), "{err}");
-}
-
-#[test]
-fn all_features_diff_covers_each_dirty_feature() {
-    let (dir, repo_id) = setup("one");
+fn draft_paths_outside_own_namespace_are_rejected() {
+    let (dir, repo_id) = setup();
     let root = dir.path();
-    ops::draft(root, &repo_id, &feature_json("two", "t"), None).unwrap();
-    let diff = ops::diff(root, &repo_id, None).unwrap();
-    assert!(diff.contains("one/feature.json"), "{diff}");
-    assert!(diff.contains("two/feature.json"), "{diff}");
-}
-
-fn collect_dirs(path: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(path)
-        .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    names
-}
-
-fn walk(path: &Path) -> Vec<std::fs::DirEntry> {
-    let mut out = Vec::new();
-    let mut stack = vec![path.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        for entry in std::fs::read_dir(&dir).unwrap() {
-            let entry = entry.unwrap();
-            if entry.file_type().unwrap().is_dir() {
-                stack.push(entry.path());
-            }
-            out.push(entry);
-        }
-    }
-    out
-}
-
-fn git_ls_files(root: &Path) -> Vec<String> {
-    let out = std::process::Command::new("git")
-        .env("GIT_CONFIG_NOSYSTEM", "1")
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
-        .current_dir(root)
-        .args(["ls-files"])
-        .output()
-        .unwrap();
-    String::from_utf8(out.stdout)
-        .unwrap()
-        .lines()
-        .map(str::to_string)
-        .collect()
+    let err = ops::draft(
+        root,
+        &repo_id,
+        "mine",
+        &files(&[("docs/other/file.md", "x\n")]),
+        None,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("own namespace"), "{err}");
+    let err = ops::draft(
+        root,
+        &repo_id,
+        "mine",
+        &files(&[("_changelog/x.md", "x\n")]),
+        None,
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("namespace") || err.to_string().contains("_changelog"));
 }
 
 #[test]
-fn relative_feature_root_resolves_without_path_doubling() {
-    let dir = tempfile::tempdir().unwrap();
-    let repo_id = repo_id_from_git_url(GIT_URL).unwrap();
-    let prev = std::env::current_dir().unwrap();
-    std::env::set_current_dir(dir.path()).unwrap();
-    let drafted = ops::draft(
-        Path::new("feat-root"),
+fn expected_tip_and_expected_name_guards() {
+    let (dir, repo_id) = setup();
+    let root = dir.path();
+    ops::draft(root, &repo_id, "guard", &files(&[("docs/guard/g.md", "v1\n")]), None).unwrap();
+    let err = ops::draft(
+        root,
         &repo_id,
-        &feature_json("相对根功能", "v1"),
-        None,
-    );
-    let listing = ops::list(Path::new("feat-root"), &repo_id);
-    std::env::set_current_dir(prev).unwrap();
-    drafted.unwrap();
-    let root = dir.path().join("feat-root");
-    assert!(root.join(&repo_id).join("相对根功能").join("feature.json").is_file());
-    assert!(!root.join("feat-root").exists(), "relative root must not double");
-    assert_eq!(listing.unwrap().len(), 1);
+        "guard",
+        &files(&[("docs/guard/g.md", "v2\n")]),
+        Some("other"),
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("mismatch"));
+
+    let err = ops::approve(
+        root,
+        &repo_id,
+        "guard",
+        &ops::ApproveParams { reviewer: "r", note: None, expected_tip: Some("deadbeef") },
+    )
+    .unwrap_err();
+    assert!(err.to_string().contains("tip changed"), "{err}");
+    assert_eq!(ops::mrs(root, &repo_id).unwrap().len(), 1);
+}
+
+#[test]
+fn concurrent_drafts_on_distinct_mrs_do_not_conflict() {
+    let (dir, repo_id) = setup();
+    let root = dir.path();
+    for name in ["alpha", "beta"] {
+        ops::draft(
+            root,
+            &repo_id,
+            name,
+            &files(&[(format!("docs/{name}/f.md").as_str(), "x\n")]),
+            None,
+        )
+        .unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+    let mrs = ops::mrs(root, &repo_id).unwrap();
+    assert_eq!(mrs.len(), 2);
+    assert!(mrs.iter().all(|m| m.state == ops::MrState::Open));
+    assert!(mrs.iter().all(|m| m.behind == 0 && m.ahead == 1));
+}
+
+#[test]
+fn commits_endpoint_spans_open_and_merged() {
+    let (dir, repo_id) = setup();
+    let root = dir.path();
+    ops::draft(root, &repo_id, "c", &files(&[("docs/c/a.md", "1\n")]), None).unwrap();
+    ops::draft(root, &repo_id, "c", &files(&[("docs/c/a.md", "2\n")]), None).unwrap();
+    let open = ops::commits(root, &repo_id, "c").unwrap();
+    assert_eq!(open.len(), 2);
+    assert!(open[0].subject.contains("draft"));
+    ops::approve(
+        root,
+        &repo_id,
+        "c",
+        &ops::ApproveParams { reviewer: "r", note: None, expected_tip: None },
+    )
+    .unwrap();
+    let merged = ops::commits(root, &repo_id, "c").unwrap();
+    assert_eq!(merged.len(), 2, "merged MR still lists its branch commits");
+}
+
+#[test]
+fn reapprove_after_new_draft_reopens_mr() {
+    let (dir, repo_id) = setup();
+    let root = dir.path();
+    ops::draft(root, &repo_id, "loop", &files(&[("docs/loop/a.md", "1\n")]), None).unwrap();
+    ops::approve(
+        root,
+        &repo_id,
+        "loop",
+        &ops::ApproveParams { reviewer: "r", note: None, expected_tip: None },
+    )
+    .unwrap();
+    assert_eq!(ops::mrs(root, &repo_id).unwrap()[0].state, ops::MrState::Merged);
+    ops::draft(root, &repo_id, "loop", &files(&[("docs/loop/a.md", "2\n")]), None).unwrap();
+    assert_eq!(ops::mrs(root, &repo_id).unwrap()[0].state, ops::MrState::Open);
+    ops::approve(
+        root,
+        &repo_id,
+        "loop",
+        &ops::ApproveParams { reviewer: "r", note: None, expected_tip: None },
+    )
+    .unwrap();
+    assert_eq!(ops::changelog(root, &repo_id).unwrap().len(), 2);
+    assert!(ops::diff(root, &repo_id, "loop").unwrap().is_empty(), "merged == main");
 }

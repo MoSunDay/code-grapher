@@ -1,6 +1,7 @@
-//! Feature-root resolution and layout: `<root>/<repo_id>/<name>/feature.json`
-//! plus `<root>/<repo_id>/_changelog/`. All traversal goes through checked
-//! helpers that reject symlinks and stay inside the canonical root.
+//! Feature-root resolution and layout: `<root>/<repo_id>/` is one independent
+//! git document repository (branches `main` and `mr/<name>`). All worktree
+//! writes go through checked helpers that reject symlinks and stay inside the
+//! canonical repo directory.
 
 use anyhow::{bail, Context, Result};
 use std::env;
@@ -8,10 +9,10 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-/// Reserved changelog directory below each repository partition.
+/// Reserved changelog directory inside each document repository.
 pub const CHANGELOG_DIR: &str = "_changelog";
-/// Feature payload file name.
-pub const FEATURE_JSON: &str = "feature.json";
+/// Lock file name serializing writers per repository (NFS-safe flock).
+pub const LOCK_FILE: &str = ".lock";
 /// repo_id is exactly 64 lowercase hex characters.
 pub const REPO_ID_LEN: usize = 64;
 
@@ -52,38 +53,88 @@ fn non_empty(value: Option<OsString>) -> Option<OsString> {
 /// Validate a repo_id: 64 lowercase hex characters, no separators.
 pub fn validate_repo_id(repo_id: &str) -> Result<()> {
     let valid = repo_id.len() == REPO_ID_LEN
-        && repo_id
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        && repo_id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
     if !valid {
         bail!("repo_id must be {REPO_ID_LEN} lowercase hex characters");
     }
     Ok(())
 }
 
-/// `<root>/<repo_id>` after validation.
+/// The per-repository git directory: `<root>/<repo_id>`.
 pub fn repo_dir(root: &Path, repo_id: &str) -> Result<PathBuf> {
     validate_repo_id(repo_id)?;
     Ok(root.join(repo_id))
 }
 
-/// `<root>/<repo_id>/<name>/feature.json`.
-pub fn feature_json_path(root: &Path, repo_id: &str, name: &str) -> Result<PathBuf> {
-    Ok(repo_dir(root, repo_id)?.join(name).join(FEATURE_JSON))
+/// Changelog directory (relative) inside a document repository.
+pub fn changelog_rel() -> PathBuf {
+    PathBuf::from(CHANGELOG_DIR)
 }
 
-/// `<root>/<repo_id>/_changelog`.
-pub fn changelog_dir(root: &Path, repo_id: &str) -> Result<PathBuf> {
-    Ok(repo_dir(root, repo_id)?.join(CHANGELOG_DIR))
-}
-
-/// Changelog file name `YYYY-MM-DD-<feature_name>-<suffix>.md`, length-checked.
+/// Changelog entry file name: `YYYY-MM-DD-<name>-<hash6>.md`.
 pub fn changelog_file_name(date: &str, name: &str, suffix: &str) -> Result<String> {
+    validate_one_component(name, "feature name")?;
+    if suffix.len() != 6 || !suffix.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("changelog suffix must be 6 hex characters");
+    }
     let file = format!("{date}-{name}-{suffix}.md");
     if file.len() > 240 {
         bail!("changelog file name exceeds 240 bytes");
     }
     Ok(file)
+}
+
+/// Validate a slash-separated repository-relative file path (docs tree) for
+/// writes: additionally rejects the reserved `_changelog` namespace.
+pub fn validate_rel_path(path: &str) -> Result<()> {
+    check_rel_path(path)?;
+    let head = path.split('/').next().unwrap_or_default();
+    if head == CHANGELOG_DIR {
+        bail!(
+            "path must not enter the reserved {CHANGELOG_DIR} namespace, got {path:?}"
+        );
+    }
+    Ok(())
+}
+
+/// Validate a repository-relative path for reads (changelog readable too).
+pub fn validate_blob_path(path: &str) -> Result<()> {
+    check_rel_path(path)
+}
+
+/// Shared rel-path rules: non-empty, no leading/trailing `/`, no empty or
+/// `.`/`..` components, no control characters, bounded depth, never inside
+/// `.git`/`.lock` internals.
+fn check_rel_path(path: &str) -> Result<()> {
+    if path.is_empty() {
+        bail!("path must not be empty");
+    }
+    if path.starts_with('/') || path.ends_with('/') {
+        bail!("path must be relative without leading/trailing '/', got {path:?}");
+    }
+    if path.contains('\0') || path.chars().any(|c| c.is_control()) {
+        bail!("path must not contain control characters, got {path:?}");
+    }
+    let mut depth = 0usize;
+    for component in path.split('/') {
+        if component.is_empty() {
+            bail!("path must not contain empty '/'-separated components, got {path:?}");
+        }
+        if component == "." || component == ".." {
+            bail!("path must not contain '.' or '..' components, got {path:?}");
+        }
+        depth += 1;
+    }
+    if depth > 16 {
+        bail!("path nesting exceeds 16 components, got {path:?}");
+    }
+    if path
+        .split('/')
+        .any(|c| c == ".git" || c == LOCK_FILE || c == ".gitignore")
+    {
+        bail!("path must not touch repository internals, got {path:?}");
+    }
+    Ok(())
 }
 
 /// Reject a relative path that is not exactly one safe component.
@@ -102,11 +153,6 @@ pub fn validate_one_component(value: &str, label: &str) -> Result<()> {
     Ok(())
 }
 
-/// True when a directory entry name belongs to the reserved namespace.
-pub fn is_reserved_entry(name: &str) -> bool {
-    name.starts_with('_')
-}
-
 /// Create `dir` (and parents) below `root`, rejecting symlinks on the way.
 pub fn ensure_dir_checked(root: &Path, dir: &Path) -> Result<()> {
     let canonical_root = canonical_root(root)?;
@@ -116,8 +162,7 @@ pub fn ensure_dir_checked(root: &Path, dir: &Path) -> Result<()> {
         canonical_root.join(dir)
     };
     let mut current = canonical_root.clone();
-    for component in target.strip_prefix(&canonical_root).unwrap_or(&target).components()
-    {
+    for component in target.strip_prefix(&canonical_root).unwrap_or(&target).components() {
         current.push(component);
         match fs::symlink_metadata(&current) {
             Ok(metadata) if metadata.is_dir() && !metadata.file_type().is_symlink() => {}
@@ -138,20 +183,28 @@ pub fn ensure_dir_checked(root: &Path, dir: &Path) -> Result<()> {
 pub fn canonical_root(root: &Path) -> Result<PathBuf> {
     match fs::create_dir_all(root) {
         Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error).with_context(|| format!("create {}", root.display())),
     }
-    root.canonicalize()
-        .with_context(|| format!("canonicalize {}", root.display()))
+    let canonical = root
+        .canonicalize()
+        .with_context(|| format!("canonicalize {}", root.display()))?;
+    if !canonical.is_dir() {
+        bail!("feature root {} is not a directory", canonical.display());
+    }
+    Ok(canonical)
 }
 
-/// Verify a path under the canonical root has no symlink components, returning it.
+/// Resolve `path` below `root`, rejecting symlink escapes along the way.
 pub fn checked_path(root: &Path, path: &Path) -> Result<PathBuf> {
-    let canonical_root = root.canonicalize().with_context(|| {
-        format!("feature root {} does not exist", root.display())
-    })?;
+    let canonical_root = canonical_root(root)?;
+    let target = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        canonical_root.join(path)
+    };
     let mut current = canonical_root.clone();
-    for component in path.components() {
+    for component in target.strip_prefix(&canonical_root).unwrap_or(&target).components() {
         current.push(component);
         if let Ok(metadata) = fs::symlink_metadata(&current) {
             if metadata.file_type().is_symlink() {
@@ -174,24 +227,6 @@ pub fn checked_write(root: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
     fs::write(&full, bytes).with_context(|| format!("write {}", full.display()))
 }
 
-/// List a directory's entry names under the root with symlink rejection.
-pub fn checked_read_dir(root: &Path, path: &Path) -> Result<Vec<String>> {
-    let full = checked_path(root, path)?;
-    let entries = fs::read_dir(&full).with_context(|| format!("read {}", full.display()))?;
-    let mut names = Vec::new();
-    for entry in entries {
-        let entry = entry.with_context(|| format!("scan {}", full.display()))?;
-        names.push(entry.file_name().to_string_lossy().into_owned());
-    }
-    names.sort();
-    Ok(names)
-}
-
-/// Root-relative slash path for git pathspecs (repo_id is pre-validated).
-pub fn repo_relative(repo_id: &str, tail: &str) -> String {
-    format!("{repo_id}/{tail}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +237,29 @@ mod tests {
         assert!(validate_repo_id(&"A".repeat(64)).is_err());
         assert!(validate_repo_id(&"a".repeat(63)).is_err());
         assert!(validate_repo_id("../escape").is_err());
+    }
+
+    #[test]
+    fn rel_paths_reject_traversal_and_reserved() {
+        assert!(validate_rel_path("docs/a.md").is_ok());
+        assert!(validate_rel_path("a/b/c.json").is_ok());
+        for bad in [
+            "",
+            "/abs",
+            "a/",
+            "a//b",
+            "./a",
+            "a/../b",
+            "..",
+            "_changelog/x.md",
+            "_changelog",
+            ".git/config",
+            "a/.lock",
+            "a/.git/x",
+            "a/\u{1}b",
+        ] {
+            assert!(validate_rel_path(bad).is_err(), "{bad}");
+        }
     }
 
     #[test]

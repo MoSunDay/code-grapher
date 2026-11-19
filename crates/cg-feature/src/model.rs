@@ -1,138 +1,146 @@
-//! Feature model: `name` is the sole identity and doubles as the directory name.
-//!
-//! The legacy `id` field is rejected as an unknown field, so a dual-identity
-//! JSON can never re-enter the system.
+//! MR name model: a name is the sole feature identity and becomes the branch
+//! `mr/<name>` inside the per-repository git document repo.
 
-use crate::git_url::sha256_hex;
 use anyhow::{bail, Result};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-/// Longest allowed feature name, in UTF-8 bytes.
+/// Longest allowed MR name, in UTF-8 bytes.
 pub const MAX_FEATURE_NAME_BYTES: usize = 128;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Feature {
-    pub name: String,
-    pub function_entry: Value,
-    pub request_chain: Value,
-    pub external_dependencies: Value,
-    pub function_summary: Value,
-    pub children: Value,
+/// Branch namespace prefix for MR (draft) branches.
+pub const MR_PREFIX: &str = "mr/";
+
+/// Full branch ref name for an MR: `mr/<name>`.
+pub fn mr_branch(name: &str) -> String {
+    format!("{MR_PREFIX}{name}")
 }
 
-/// Parse feature JSON, rejecting unknown fields (including the legacy `id`)
-/// and any unsafe `name`.
-pub fn parse_feature(bytes: &[u8]) -> Result<Feature> {
-    let feature: Feature = serde_json::from_slice(bytes).map_err(|error| {
-        if error.to_string().contains("unknown field") {
-            anyhow::anyhow!(
-                "{error}; the `id` field is gone: `name` is the feature identity"
-            )
-        } else {
-            anyhow::Error::new(error)
-        }
-    })?;
-    validate_feature_name(&feature.name)?;
-    Ok(feature)
+/// Extract the MR name from a branch ref name, if it is one.
+pub fn mr_name_from_branch(branch: &str) -> Option<&str> {
+    branch.strip_prefix(MR_PREFIX)
 }
 
-/// Stable canonical serialization for on-disk bytes and hashing.
-pub fn canonical_feature_bytes(feature: &Feature) -> Result<Vec<u8>> {
-    let mut bytes = serde_json::to_vec_pretty(feature)?;
-    bytes.push(b'\n');
-    Ok(bytes)
-}
-
-/// SHA-256 of the exact feature.json bytes, used as the review hash.
-pub fn feature_hash(bytes: &[u8]) -> String {
-    sha256_hex(bytes)
-}
-
-/// Validate a feature name before it becomes a directory component.
+/// Validate an MR name before it becomes a git branch component.
 ///
-/// Allowed: unicode text (including Chinese), spaces, letters, digits, `-`,
-/// `_`, `.`. Rejected: empty, `.`/`..`, separators, control characters,
-/// leading/trailing whitespace, the `_`-prefixed reserved namespace (e.g.
-/// `_changelog`), leading `.`, and names longer than [`MAX_FEATURE_NAME_BYTES`].
+/// Allowed: unicode text (including Chinese), letters, digits, `-`, `_`,
+/// `.`, `/`-free single component. Rejected: empty, `.`/`..`, whitespace and
+/// control characters, git ref metacharacters (`~ ^ : ? * [ \\ /`), the
+/// sequences `..` and trailing `.lock`, a leading `.` or `/`, the `_`-prefixed
+/// reserved namespace (e.g. `_changelog`), and names longer than
+/// [`MAX_FEATURE_NAME_BYTES`].
 pub fn validate_feature_name(name: &str) -> Result<()> {
     if name.is_empty() {
         bail!("feature name must not be empty");
     }
-    if name == "." || name == ".." {
-        bail!("feature name must not be {name:?}");
-    }
-    if name != name.trim() {
-        bail!("feature name must not start or end with whitespace");
-    }
-    if name.starts_with('_') {
-        bail!("feature names starting with '_' are reserved (e.g. _changelog)");
-    }
-    if name.starts_with('.') {
-        bail!("feature name must not start with '.'");
-    }
-    if name.contains('/') || name.contains('\\') {
-        bail!("feature name must not contain path separators");
-    }
-    if name.chars().any(|c| c.is_control()) {
-        bail!("feature name must not contain control characters");
-    }
     if name.len() > MAX_FEATURE_NAME_BYTES {
         bail!(
-            "feature name exceeds {} bytes (got {})",
-            MAX_FEATURE_NAME_BYTES,
+            "feature name exceeds {MAX_FEATURE_NAME_BYTES} bytes (UTF-8), got {}",
             name.len()
         );
     }
+    if name == "." || name == ".." {
+        bail!("feature name must not be {name:?}");
+    }
+    if name.starts_with('.') {
+        bail!("feature name must not start with '.', got {name:?}");
+    }
+    if name.starts_with('_') {
+        bail!("feature name must not start with '_' (reserved namespace), got {name:?}");
+    }
+    if name.starts_with('/') || name.ends_with('/') || name.ends_with('.') {
+        bail!("feature name must not start with '/' or end with '/' or '.', got {name:?}");
+    }
+    if name.ends_with(".lock") {
+        bail!("feature name must not end with '.lock', got {name:?}");
+    }
+    if name.contains("..") {
+        bail!("feature name must not contain '..', got {name:?}");
+    }
+    for ch in name.chars() {
+        if ch.is_control() || ch.is_whitespace() {
+            bail!("feature name must not contain whitespace or control characters, got {name:?}");
+        }
+        if matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\' | '/' | '\x7f') {
+            bail!("feature name must not contain git ref metacharacter {ch:?}, got {name:?}");
+        }
+    }
     Ok(())
+}
+
+/// Render hint derived from a file path's extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RenderHint {
+    Markdown,
+    Json,
+    Text,
+}
+
+/// Map a path to a rendering hint for the web viewer.
+pub fn render_hint(path: &str) -> RenderHint {
+    let lower = path.to_ascii_lowercase();
+    let ext = lower.rsplit('.').next().unwrap_or("");
+    match ext {
+        "md" | "markdown" => RenderHint::Markdown,
+        "json" | "jsonc" => RenderHint::Json,
+        _ => RenderHint::Text,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn minimal(name: &str) -> String {
-        serde_json::json!({
-            "name": name,
-            "function_entry": "main",
-            "request_chain": [],
-            "external_dependencies": [],
-            "function_summary": "",
-            "children": []
-        })
-        .to_string()
-    }
-
     #[test]
-    fn rejects_legacy_id_field() {
-        let json = format!(
-            "{{\"id\":\"f1\",{}",
-            minimal("AST 解析").replacen('{', "", 1)
-        );
-        assert!(parse_feature(json.as_bytes()).is_err());
-    }
-
-    #[test]
-    fn rejects_missing_or_unsafe_names() {
-        let no_name = serde_json::json!({
-            "function_entry": "main", "request_chain": [], "external_dependencies": [],
-            "function_summary": "", "children": []
-        });
-        assert!(parse_feature(no_name.to_string().as_bytes()).is_err());
-        for bad in [
-            "", ".", "..", "a/b", "a\\b", " lead", "trail ", "_changelog", "_reserved",
-            "\u{0}x", "x\u{7}y", ".hidden",
+    fn accepts_safe_names() {
+        for name in [
+            "AST解析与领域模型",
+            "request-chain_v2",
+            "edge.2026",
+            "a",
+            &"x".repeat(MAX_FEATURE_NAME_BYTES),
         ] {
-            assert!(validate_feature_name(bad).is_err(), "{bad:?}");
+            assert!(validate_feature_name(name).is_ok(), "{name}");
         }
     }
 
     #[test]
-    fn accepts_chinese_spaces_and_case() {
-        for good in ["AST 解析与领域模型", "请求链路 推断", "v2.1-fast", "under_score", "A"] {
-            validate_feature_name(good).unwrap();
-            assert!(parse_feature(minimal(good).as_bytes()).is_ok(), "{good}");
+    fn rejects_unsafe_names() {
+        for name in [
+            "",
+            ".",
+            "..",
+            ".hidden",
+            "_changelog",
+            "a b",
+            "a/b",
+            "a~b",
+            "a^b",
+            "a:b",
+            "a?b",
+            "a*b",
+            "a[b",
+            "a\\b",
+            "a..b",
+            "mr.lock",
+            "a.",
+            &"x".repeat(MAX_FEATURE_NAME_BYTES + 1),
+        ] {
+            assert!(validate_feature_name(name).is_err(), "{name}");
         }
+    }
+
+    #[test]
+    fn branch_roundtrip() {
+        assert_eq!(mr_branch("概览"), "mr/概览");
+        assert_eq!(mr_name_from_branch("mr/概览"), Some("概览"));
+        assert_eq!(mr_name_from_branch("main"), None);
+    }
+
+    #[test]
+    fn hints_follow_extension() {
+        assert_eq!(render_hint("docs/a.MD"), RenderHint::Markdown);
+        assert_eq!(render_hint("x/index.json"), RenderHint::Json);
+        assert_eq!(render_hint("x/y.txt"), RenderHint::Text);
+        assert_eq!(render_hint("noext"), RenderHint::Text);
     }
 }
