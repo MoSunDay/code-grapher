@@ -162,6 +162,7 @@ async fn local_dispatch(conn: libsql::Connection, sel: Option<&str>, cmd: Cmd) -
                 analyzer: !no_analyzer,
                 web_dist: cg_server::state::default_web_dist(),
                 feature_root: cg_server::state::default_feature_root(),
+                clones_root: cg_server::state::default_clones_root(),
             };
             cg_server::run(cfg).await
         }
