@@ -16,7 +16,7 @@
 - `crates/cg-analyzer`：LLM prompt 构造、opencode server 客户端、任务调度（信号量 worker 池）
 - `crates/cg-server`：axum REST + WS 守护服务
 - `crates/cg-cli`：clap CLI（本地嵌入 / --server 远程两模式）
-- `crates/cg-feature`：git 评审功能存储（repo_id=sha256(canonical git_url)，`name` 即唯一 ID，draft/stable 由 git 状态表达；契约见 `docs/feature-versions.md`）
+- `crates/cg-feature`：git MR 文档存储（每 repo_id 一个独立 git 仓库：`mr/<name>` 分支=草稿、approve=`merge --no-ff` 进 main、文件在 `docs/<name>/`；契约见 `docs/feature-versions.md`）
 - `web/`：Vite + React + TS strict + antd5 + TanStack Query + G6
 
 ## 硬性规范
