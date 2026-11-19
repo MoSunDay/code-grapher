@@ -13,15 +13,13 @@ async fn spawn_mock(addr: std::net::SocketAddr) -> anyhow::Result<()> {
     let prompts = Arc::new(AtomicUsize::new(0));
     tokio::spawn(async move {
         loop {
-            let (mut stream, _) = match listener.accept().await {
+            let (stream, _) = match listener.accept().await {
                 Ok(s) => s,
                 Err(_) => break,
             };
             let prompts = prompts.clone();
             let _ = tokio::task::spawn_blocking(move || {
                 use std::io::{Read, Write};
-                use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                let mut stream = stream;
                 let mut stream = stream.into_std().unwrap();
                 stream.set_nonblocking(false).unwrap();
                 let mut buf = [0u8; 8192];
@@ -61,8 +59,8 @@ fn header_end(req: &str) -> Option<usize> {
 fn content_length(req: &str) -> Option<usize> {
     for line in req.lines() {
         let l = line.to_lowercase();
-        if l.starts_with("content-length:") {
-            return l[15..].trim().parse().ok();
+        if let Some(v) = l.strip_prefix("content-length:") {
+            return v.trim().parse().ok();
         }
     }
     None
@@ -137,7 +135,7 @@ pub fn main() {
     let repo = cg_db::repos::upsert(&db, dir.path().to_str().unwrap(), "fixture", None)
         .await
         .unwrap();
-    let mut noop = |_p: cg_indexer::IndexProgress| {};
+    let noop = |_p: cg_indexer::IndexProgress| {};
     cg_indexer::index_repo(&db, &repo, false, "test", noop).await.unwrap();
 
     // analyzer against mock

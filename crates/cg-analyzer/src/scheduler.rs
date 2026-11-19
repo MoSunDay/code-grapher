@@ -205,9 +205,8 @@ pub async fn run_once(
             }));
         }
         for h in handles {
-            match h.await {
-                Ok(Ok(s)) => summaries.push(s),
-                _ => {}
+            if let Ok(Ok(s)) = h.await {
+                summaries.push(s)
             }
             done += 1;
         }
