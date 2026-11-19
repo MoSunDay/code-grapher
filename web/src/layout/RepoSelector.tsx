@@ -36,6 +36,9 @@ function AddRepoModal({ open, onClose }: { open: boolean; onClose: () => void })
     const path = values.path?.trim() ?? ''
     const name = values.name?.trim() === '' ? undefined : values.name?.trim()
     if (url !== '') {
+      if (path !== '') {
+        message.info('同时填写了 URL 与本地路径，按 URL 模式注册（本地路径已忽略）')
+      }
       mutation.mutate({ url, name })
     } else {
       mutation.mutate({ path, name, git_url: values.git_url?.trim() || undefined })

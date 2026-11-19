@@ -15,8 +15,18 @@ pub async fn run(cfg: ServerConfig) -> Result<()> {
     cg_db::migrate(&db).await?;
     let state = AppState::new(db.clone(), cfg.clone());
 
+    // clones interrupted by a previous shutdown are permanently failed
+    if let Ok(n) = cg_db::repos::fail_orphan_cloning(&db).await {
+        if n > 0 {
+            tracing::warn!(n, "marked interrupted clones as failed");
+        }
+    }
+
     if cfg.watch {
         for repo in cg_db::repos::list(&db).await.unwrap_or_default() {
+            if repo.repo.status != cg_core::repo_status::READY {
+                continue; // cloning dirs do not exist yet; failed dirs are unusable
+            }
             spawn_repo_watcher(state.clone(), repo.repo.clone());
         }
         tracing::info!("watchers started for existing repos");
@@ -50,7 +60,7 @@ pub async fn run(cfg: ServerConfig) -> Result<()> {
 }
 
 /// Watch one repo; re-indexes changed source files (debounced batches).
-fn spawn_repo_watcher(state: AppState, repo: cg_core::model::Repo) {
+pub(crate) fn spawn_repo_watcher(state: AppState, repo: cg_core::model::Repo) {
     tokio::spawn(async move {
         let mut rx = match cg_indexer::spawn_watcher(std::path::Path::new(&repo.path), Duration::from_secs(2)) {
             Ok(rx) => rx,

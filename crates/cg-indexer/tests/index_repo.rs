@@ -25,7 +25,7 @@ async fn indexes_and_increments() {
     cg_db::migrate(&db).await.unwrap();
     let repo = repos::upsert(&db, dir.path().to_str().unwrap(), "fx", None).await.unwrap();
 
-    let mut progress = |_p: cg_indexer::IndexProgress| {};
+    let progress = |_p: cg_indexer::IndexProgress| {};
     let out = cg_indexer::index_repo(&db, &repo, false, "test", progress).await.unwrap();
     assert_eq!(out.files_scanned, 2, "target/ and .txt skipped");
     assert_eq!(out.files_changed, 2);

@@ -3,6 +3,17 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Repository lifecycle states (repositories.status column values).
+pub mod repo_status {
+    pub const CLONING: &str = "cloning";
+    pub const READY: &str = "ready";
+    pub const FAILED: &str = "failed";
+}
+
+fn default_repo_status() -> String {
+    repo_status::READY.into()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct Repo {
     pub id: i64,
@@ -10,6 +21,12 @@ pub struct Repo {
     pub name: String,
     pub git_url: Option<String>,
     pub created_at: String,
+    /// Lifecycle: `cloning` (background git clone running) | `ready` | `failed`.
+    #[serde(default = "default_repo_status")]
+    pub status: String,
+    /// Last clone/registration failure reason, when status = failed.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

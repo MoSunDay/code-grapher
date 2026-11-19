@@ -14,7 +14,10 @@
   - url 模式（主路径）body `{url, name?}`：校验并归一化 url（`canonical_git_url`）→ 查重（同一 canonical url 已注册返回 409 + `{error, repo}`）→ 插入 `status:'cloning'` 行并**立即返回** → 后台 `git clone` 到 `clones_root`（`CG_REPOS_DIR` 覆盖，默认 `./repos`；克隆禁用终端交互，私有仓库凭证走服务器 git 环境）→ 成功置 `ready`、WS 推 `clone_done`、启动 watcher 并自动索引；失败置 `failed`（`error` 带原因）、WS 推 `clone_failed`。克隆目录名 `净化名-fnv1a16(url)` 防穿越/防冲突。服务重启时中断的 cloning 行置 `failed`
   - path 模式（兼容）body `{path, name?, git_url?}`：注册本地已存在 checkout，upsert 后同样自动索引
 - Repo 新增 `status: cloning|ready|failed` 与 `error`（failed 时的原因）
-- `DELETE /api/repos/{id}` → `{ok:true}`（本期不删除 clones_root 下的克隆目录）
+- **failed 重试**：对 `failed` 仓库重发同一 URL = 重置为 `cloning` 并重新克隆（响应含 `retried:true`）；`cloning`/`ready` 状态仍返回 409
+- **克隆超时**：`CG_CLONE_TIMEOUT` 环境变量（秒，默认 `1800`，`0` 或非法值 = 不限）；超时置 `failed`（error 带原因）并清理半克隆目录
+- **单实例假设（Repos）**：多实例共享同一 DB 时，B 实例启动会把 A 实例进行中的 `cloning` 行误置 `failed`（与 Features 段"每分区单写者"声明一致，生产请保持 cg-server 单实例）
+- `DELETE /api/repos/{id}` → `{ok:true}`（`cloning` 中返回 409；不存在返回 404；本期不删除 clones_root 下的克隆目录）
 - `POST /api/repos/{id}/index` body `{full?:bool}` → `{ok:true}`（或 `{run_id:null,already_running:true}`）；`status=cloning` 时返回 409；进度走 WS
 - `POST /api/repos/{id}/analyze` → `{enqueued:N}`（为全部函数入队 hidden_calls 任务）
 - `GET /api/repos/{id}` → `{repo, last_run, stats, feature_repo_id}`

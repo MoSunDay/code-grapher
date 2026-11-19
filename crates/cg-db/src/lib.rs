@@ -12,7 +12,10 @@ use anyhow::{Context, Result};
 use libsql::{Connection, Builder};
 
 /// Embedded migrations: (name, sql) applied in order.
-const MIGRATIONS: &[(&str, &str)] = &[("0001_init", include_str!("../../../migrations/0001_init.sql"))];
+const MIGRATIONS: &[(&str, &str)] = &[
+    ("0001_init", include_str!("../../../migrations/0001_init.sql")),
+    ("0002_repo_status", include_str!("../../../migrations/0002_repo_status.sql")),
+];
 
 /// Open a local file database.
 pub async fn open_local(path: &std::path::Path) -> Result<Connection> {
