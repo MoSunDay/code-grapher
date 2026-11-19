@@ -18,7 +18,7 @@ const DEFAULT_EMAIL: &str = "cg-feature@code-grapher.invalid";
 /// Field/record separators for `--format` parsing.
 const FS: &str = "\x1f";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct CommitInfo {
     pub hash: String,
     pub parents: Vec<String>,

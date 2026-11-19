@@ -23,15 +23,18 @@ use tower_http::cors::CorsLayer;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/repos", get(repos::list).post(repos::create))
-        .route(
-            "/api/features/{repo_id}",
-            get(features::list).post(features::draft),
-        )
+        .route("/api/features/{repo_id}/mrs", get(features::mrs))
+        .route("/api/features/{repo_id}/tree", get(features::tree))
+        .route("/api/features/{repo_id}/blob", get(features::blob))
         .route("/api/features/{repo_id}/changelog", get(features::changelog))
-        .route("/api/features/{repo_id}/{feature_name}", get(features::get))
+        .route("/api/features/{repo_id}/draft", post(features::draft))
         .route(
             "/api/features/{repo_id}/{feature_name}/diff",
             get(features::diff),
+        )
+        .route(
+            "/api/features/{repo_id}/{feature_name}/commits",
+            get(features::commits),
         )
         .route(
             "/api/features/{repo_id}/{feature_name}/approve",

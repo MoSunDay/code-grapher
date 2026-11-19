@@ -14,8 +14,10 @@ pub struct ServerConfig {
     pub analyzer: bool,
     /// Built SPA directory served at `/` (web/dist); empty disables static hosting.
     pub web_dist: Option<std::path::PathBuf>,
-    /// Git-backed feature review root (`<root>/<repo_id>/<feature_name>/`).
+    /// Git-backed feature review root (`<root>/<repo_id>/` = one git document repo).
     pub feature_root: std::path::PathBuf,
+    /// Root directory for repositories cloned from URL registration.
+    pub clones_root: std::path::PathBuf,
 }
 
 impl Default for ServerConfig {
@@ -27,6 +29,7 @@ impl Default for ServerConfig {
             analyzer: true,
             web_dist: default_web_dist(),
             feature_root: default_feature_root(),
+            clones_root: default_clones_root(),
         }
     }
 }
@@ -47,12 +50,19 @@ pub fn default_feature_root() -> std::path::PathBuf {
     cg_feature::resolve_feature_root(None).unwrap_or_else(|_| std::path::PathBuf::from("./feature-data"))
 }
 
+/// Clones root for URL-registered repos; `CG_REPOS_DIR` override, else `./repos`.
+pub fn default_clones_root() -> std::path::PathBuf {
+    std::env::var("CG_REPOS_DIR").map(std::path::PathBuf::from).unwrap_or_else(|_| "./repos".into())
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: Connection,
     pub events: broadcast::Sender<String>,
     /// Repos currently being indexed (prevents concurrent double-runs).
     pub indexing: std::sync::Arc<Mutex<HashSet<i64>>>,
+    /// Repos currently being cloned from a registered URL.
+    pub cloning: std::sync::Arc<Mutex<HashSet<i64>>>,
     pub cfg: ServerConfig,
     /// Runtime-adjustable analyzer concurrency (0 = paused).
     pub analyze_concurrency: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -65,6 +75,7 @@ impl AppState {
             db,
             events,
             indexing: std::sync::Arc::new(Mutex::new(HashSet::new())),
+            cloning: std::sync::Arc::new(Mutex::new(HashSet::new())),
             cfg,
             analyze_concurrency: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
                 cg_analyzer::AnalyzerConfig::from_env().concurrency,
