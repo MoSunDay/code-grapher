@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
-import type { Id, SymbolQueryParams, TaskStatus } from '../api/types'
+import type { Id, SymbolQueryParams } from '../api/types'
 import { getConfig } from '../api/config'
 import { getFileContent, listFiles } from '../api/files'
 import { getRepoStats, listRepos } from '../api/repos'
 import { getCallGraph, getSymbolDetail, listSymbols } from '../api/symbols'
-import { listTasks, listUnresolvedEdges } from '../api/tasks'
 
 export function requireRepoId(repoId: Id | null): Id {
   if (repoId === null) throw new Error('尚未选择仓库')
@@ -61,26 +60,6 @@ export function useCallGraph(symbolId: Id | null, depth = 2) {
     queryKey: ['symbols', symbolId, 'graph', depth],
     queryFn: () => getCallGraph(requireId(symbolId), depth),
     enabled: symbolId !== null,
-  })
-}
-
-export function useTasks(repoId: Id | null, status?: TaskStatus) {
-  return useQuery({
-    queryKey: ['repos', repoId, 'tasks', status ?? 'all'],
-    queryFn: () => listTasks(requireRepoId(repoId), status),
-    enabled: repoId !== null,
-    refetchInterval: (query) => {
-      const tasks = query.state.data?.tasks ?? []
-      return tasks.some((t) => t.status === 'pending' || t.status === 'running') ? 3000 : false
-    },
-  })
-}
-
-export function useUnresolvedEdges(repoId: Id | null) {
-  return useQuery({
-    queryKey: ['repos', repoId, 'edges', 'unresolved'],
-    queryFn: () => listUnresolvedEdges(requireRepoId(repoId)),
-    enabled: repoId !== null,
   })
 }
 

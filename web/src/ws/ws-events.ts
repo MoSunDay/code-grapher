@@ -54,21 +54,6 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
         },
       }
     }
-    case 'task_update': {
-      const repoId = asId(raw.repo_id)
-      const taskId = asId(raw.task_id)
-      const status = raw.status
-      if (repoId === null || taskId === null) return null
-      if (
-        status !== 'pending' &&
-        status !== 'running' &&
-        status !== 'done' &&
-        status !== 'failed'
-      ) {
-        return null
-      }
-      return { type: 'task_update', repo_id: repoId, task_id: taskId, status }
-    }
     case 'log': {
       const message = asStr(raw.message)
       if (message === '') return null

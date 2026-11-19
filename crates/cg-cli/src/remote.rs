@@ -120,18 +120,6 @@ impl Remote {
     pub async fn file(&self, id: i64, rel: &str) -> Result<Value> {
         self.get(&format!("/api/repos/{id}/file?path={}", urlencode(rel))).await
     }
-
-    pub async fn tasks(&self, id: i64, status: Option<&str>) -> Result<Value> {
-        let mut path = format!("/api/repos/{id}/tasks?limit=100");
-        if let Some(s) = status {
-            path.push_str(&format!("&status={s}"));
-        }
-        self.get(&path).await
-    }
-
-    pub async fn retry_task(&self, task_id: i64) -> Result<Value> {
-        self.post(&format!("/api/tasks/{task_id}/retry"), json!({})).await
-    }
 }
 
 fn urlencode(s: &str) -> String {

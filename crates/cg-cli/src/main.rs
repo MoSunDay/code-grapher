@@ -61,11 +61,6 @@ enum Cmd {
         #[command(subcommand)]
         action: FileAction,
     },
-    /// Analysis task queue management.
-    Tasks {
-        #[command(subcommand)]
-        action: TaskAction,
-    },
 }
 
 #[derive(Subcommand)]
@@ -96,15 +91,6 @@ enum QueryCmd {
 #[derive(Subcommand)]
 enum FileAction {
     Show { path: String },
-}
-
-#[derive(Subcommand)]
-enum TaskAction {
-    List {
-        #[arg(long)]
-        status: Option<String>,
-    },
-    Retry { task_id: i64 },
 }
 
 fn main() -> Result<()> {
@@ -190,19 +176,6 @@ async fn local_dispatch(conn: libsql::Connection, sel: Option<&str>, cmd: Cmd) -
                 print_json(local::file_show(&conn, &repo, &path).await?)
             }
         },
-        Cmd::Tasks { action } => {
-            let repo = local::resolve_repo(&conn, sel).await?;
-            match action {
-                TaskAction::List { status } => {
-                    print_json(local::tasks_list(&conn, &repo, status.as_deref()).await?)
-                }
-                TaskAction::Retry { task_id } => {
-                    cg_db::tasks::retry(&conn, task_id).await?;
-                    println!("task {task_id} requeued");
-                    Ok(())
-                }
-            }
-        }
     }
 }
 
@@ -242,15 +215,6 @@ async fn remote_dispatch(r: remote::Remote, sel: Option<&str>, cmd: Cmd) -> Resu
                 print_json(r.file(id, &path).await?)
             }
         },
-        Cmd::Tasks { action } => {
-            match action {
-                TaskAction::List { status } => {
-                    let id = r.repo_id(sel).await?;
-                    print_json(r.tasks(id, status.as_deref()).await?)
-                }
-                TaskAction::Retry { task_id } => print_json(r.retry_task(task_id).await?),
-            }
-        }
     }
 }
 

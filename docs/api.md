@@ -49,11 +49,7 @@
 - `GET /api/symbols/{id}/graph?depth=2&direction=both` → `{nodes:[{id,name,kind,qual_path}], edges:[{id,source_id,target_id?,callee_name,kind,source,confidence}]}`（target 为空表示未解析边，前端画虚线）
 
 ## Tasks
-- `GET /api/repos/{id}/tasks?status=&limit=100` → `{tasks:[{id,type,status,attempts,error,created_at,updated_at,target_symbol:{id,name,kind,qual_path}}]}`
-- `POST /api/tasks/{id}/retry` → `{ok:true}`
-- `GET /api/repos/{id}/edges/unresolved` → `{edges:[EdgeView]}`（LLM 提出但未通过校验的边，供人审）
-- `POST /api/edges/{id}/confirm` → `{ok:true}`（人工确认，confidence=1.0）
-- `POST /api/edges/{id}/dismiss` → `{ok:true}`（丢弃）
+- 无对外查询/管理端点：仓库理解任务（hidden_calls）由索引完成自动入队、调度器后台执行；LLM 隐藏调用边（source=llm，带 evidence/confidence）直接落库并入图谱
 
 ## Stats（Dashboard）
 - `GET /api/repos/{id}/stats` → `{totals:{files,symbols,edges,functions}, symbols_by_kind:{...}, edges_by_kind:{...}, edges_by_source:{ast,llm}, task_status:{pending,running,done,failed}, recent_runs:[IndexRun]}`
@@ -69,7 +65,6 @@
   - `{type:"index_progress", repo_id, run_id, done, total, phase}`
   - `{type:"index_done", repo_id, run_id, stats:{files_changed,symbols,edges,duration_ms}}`
   - `{type:"index_failed", repo_id, error}`
-  - `{type:"task_update", repo_id, task_id, status}`
   - `{type:"analyze_enqueued", repo_id, count}`
   - `{type:"log", level, message}`
 

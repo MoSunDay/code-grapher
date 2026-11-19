@@ -16,7 +16,6 @@ export type SymbolKind =
 
 export type EdgeKind = 'direct_fn' | 'dynamic_method' | 'callback' | 'fn_ptr' | 'macro'
 export type EdgeSource = 'ast' | 'llm'
-export type TaskStatus = 'pending' | 'running' | 'done' | 'failed'
 export type EdgeDirection = 'both' | 'callers' | 'callees'
 
 export interface RepoStats {
@@ -141,29 +140,6 @@ export interface CallGraph {
   edges: GraphEdge[]
 }
 
-export interface TaskSymbolRef {
-  id: Id
-  name: string
-  kind: SymbolKind
-  qual_path: string
-}
-export interface Task {
-  id: Id
-  type: string
-  status: TaskStatus
-  attempts: number
-  error?: string | null
-  created_at: string | number
-  updated_at: string | number
-  target_symbol?: TaskSymbolRef | null
-}
-export interface TaskList {
-  tasks: Task[]
-}
-export interface UnresolvedEdgeList {
-  edges: EdgeView[]
-}
-
 export interface IndexRun {
   id: Id
   status?: string
@@ -212,12 +188,6 @@ export interface IndexDoneEvent {
   run_id: Id
   stats: { files_changed: number; symbols: number; edges: number; duration_ms: number }
 }
-export interface TaskUpdateEvent {
-  type: 'task_update'
-  repo_id: Id
-  task_id: Id
-  status: TaskStatus
-}
 export interface LogEvent {
   type: 'log'
   level: string
@@ -235,7 +205,6 @@ export interface CloneFailedEvent {
 export type WsEvent =
   | IndexProgressEvent
   | IndexDoneEvent
-  | TaskUpdateEvent
   | LogEvent
   | CloneDoneEvent
   | CloneFailedEvent

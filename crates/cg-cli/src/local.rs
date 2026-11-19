@@ -2,7 +2,7 @@
 
 use anyhow::{anyhow, Context, Result};
 use cg_core::model::Repo;
-use cg_db::{edges, files, repos, runs, symbols, tasks};
+use cg_db::{edges, files, repos, runs, symbols};
 use libsql::Connection;
 
 pub async fn open(db_path: &std::path::Path) -> Result<Connection> {
@@ -91,11 +91,6 @@ pub async fn file_show(conn: &Connection, repo: &Repo, rel: &str) -> Result<serd
     let (_, syms) = symbols::list(conn, repo.id, &symbols::SymbolFilter {
         kind: None, q: None, file_id: Some(f.id), limit: 1000, offset: 0 }).await?;
     Ok(serde_json::json!({ "file": f, "symbols": syms, "content": content }))
-}
-
-pub async fn tasks_list(conn: &Connection, repo: &Repo, status: Option<&str>) -> Result<serde_json::Value> {
-    let st = status.and_then(cg_core::model::TaskStatus::parse);
-    Ok(serde_json::to_value(tasks::list(conn, repo.id, st, 100).await?)?)
 }
 
 #[allow(dead_code)]

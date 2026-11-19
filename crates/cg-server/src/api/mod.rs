@@ -13,7 +13,6 @@ pub mod files;
 pub mod repos;
 pub mod stats;
 pub mod symbols;
-pub mod tasks;
 
 use crate::state::AppState;
 use axum::routing::{delete, get, post};
@@ -47,13 +46,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/repos/{id}/file", get(files::content))
         .route("/api/repos/{id}/symbols", get(symbols::list))
         .route("/api/repos/{id}/stats", get(stats::repo_stats))
-        .route("/api/repos/{id}/tasks", get(tasks::list))
-        .route("/api/repos/{id}/edges/unresolved", get(tasks::unresolved))
         .route("/api/symbols/{id}", get(symbols::detail))
         .route("/api/symbols/{id}/graph", get(symbols::graph))
-        .route("/api/tasks/{id}/retry", post(tasks::retry))
-        .route("/api/edges/{id}/confirm", post(tasks::confirm))
-        .route("/api/edges/{id}/dismiss", post(tasks::dismiss))
         .route("/api/config", get(config).put(update_config))
         .route("/api/health", get(health))
         .route("/ws/events", get(crate::ws::ws_handler))

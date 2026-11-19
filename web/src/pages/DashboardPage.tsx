@@ -48,9 +48,6 @@ export default function DashboardPage(): ReactNode {
       void queryClient.invalidateQueries({ queryKey: ['repos'] })
       return
     }
-    if (event.type === 'task_update') {
-      void queryClient.invalidateQueries({ queryKey: ['repos', repoId] })
-    }
   })
 
   const indexMutation = useMutation({

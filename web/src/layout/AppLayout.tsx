@@ -4,7 +4,6 @@ import {
   FolderOpenOutlined,
   FunctionOutlined,
   SettingOutlined,
-  UnorderedListOutlined,
 } from '@ant-design/icons'
 import { Layout, Menu, Tooltip, Typography } from 'antd'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
@@ -17,7 +16,6 @@ const NAV_ITEMS = [
   { key: '/features', icon: <FileDoneOutlined />, label: '仓库理解' },
   { key: '/files', icon: <FolderOpenOutlined />, label: 'Files' },
   { key: '/functions', icon: <FunctionOutlined />, label: 'Functions' },
-  { key: '/tasks', icon: <UnorderedListOutlined />, label: 'Tasks' },
   { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
 ]
 
