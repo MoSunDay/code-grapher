@@ -1,106 +1,34 @@
 import { ReloadOutlined } from '@ant-design/icons'
-import { useQuery } from '@tanstack/react-query'
-import { Button, Empty, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { Button, Empty, Space, Tabs, Typography } from 'antd'
 import { useState, type ReactNode } from 'react'
-import { listChangelog, listFeatures } from '../../api/features'
-import { QueryErrorAlert } from '../../components/QueryErrorAlert'
 import { useSelectedRepo } from '../../repo/use-repo'
-import { FeatureDetailDrawer } from './FeatureDetailDrawer'
+import { MrTab } from './MrTab'
+import { ViewerTab } from './ViewerTab'
 
-function FeatureList({ featureRepoId }: { featureRepoId: string }): ReactNode {
-  const [selected, setSelected] = useState<string | null>(null)
-  const features = useQuery({
-    queryKey: ['features', featureRepoId],
-    queryFn: () => listFeatures(featureRepoId),
-    refetchInterval: 15_000,
-  })
-  return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <QueryErrorAlert error={features.error} context="加载功能列表" />
-      <Table
-        rowKey="name"
-        size="small"
-        loading={features.isLoading}
-        dataSource={features.data?.features ?? []}
-        pagination={false}
-        onRow={(record) => ({ onClick: () => setSelected(record.name) })}
-        columns={[
-          {
-            title: '功能',
-            dataIndex: 'name',
-            render: (name: string) => <Typography.Text strong>{name}</Typography.Text>,
-          },
-          {
-            title: '状态',
-            dataIndex: 'state',
-            width: 110,
-            render: (state: string) => (
-              <Tag color={state === 'draft' ? 'orange' : 'green'}>{state}</Tag>
-            ),
-          },
-          {
-            title: '内容哈希',
-            dataIndex: 'hash',
-            width: 160,
-            render: (hash: string | null) =>
-              hash === null ? '-' : <Typography.Text code>{hash.slice(0, 12)}…</Typography.Text>,
-          },
-        ]}
-      />
-      <FeatureDetailDrawer
-        featureRepoId={featureRepoId}
-        name={selected}
-        onClose={() => setSelected(null)}
-      />
-    </Space>
-  )
-}
-
-function ChangelogPanel({ featureRepoId }: { featureRepoId: string }): ReactNode {
-  const changelog = useQuery({
-    queryKey: ['feature-changelog', featureRepoId],
-    queryFn: () => listChangelog(featureRepoId),
-  })
-  if (changelog.isLoading) return <Typography.Text type="secondary">加载中…</Typography.Text>
-  return (
-    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-      <QueryErrorAlert error={changelog.error} context="加载 changelog" />
-      {(changelog.data?.changelog ?? []).length === 0 && (
-        <Empty description="暂无审核记录" />
-      )}
-      {(changelog.data?.changelog ?? []).map((entry) => (
-        <div key={entry.file}>
-          <Typography.Title level={5} style={{ marginBottom: 4 }}>
-            {entry.file}
-          </Typography.Title>
-          <pre className="code-block">{entry.markdown}</pre>
-        </div>
-      ))}
-    </Space>
-  )
-}
-
+/** 功能评审页：查看（文件树 + 内容）与 MR 记录两个 tab。 */
 export default function FeatureReviewPage(): ReactNode {
+  const [tab, setTab] = useState('viewer')
+  const [mr, setMr] = useState<string | null>(null)
   const repo = useSelectedRepo()
   const featureRepoId = repo?.feature_repo_id ?? null
 
   if (repo === null) {
-    return <Empty description="请先在顶部选择一个仓库" />
+    return <Empty description="请先在顶部选择一个仓库" style={{ marginTop: 80 }} />
   }
   if (featureRepoId === null || featureRepoId === '') {
-    return <Empty description="该仓库未配置可用 git_url，无法使用功能评审" />
+    return <Empty description="该仓库未配置可用 git_url，无法使用功能评审" style={{ marginTop: 80 }} />
   }
 
   return (
-    <div>
-      <div className="page-head">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div className="page-head" style={{ flex: 'none' }}>
         <Typography.Title level={4} style={{ margin: 0 }}>
-          功能评审 · {repo.name}
+          功能评审
         </Typography.Title>
+        <Typography.Text type="secondary" copyable style={{ fontSize: 12 }}>
+          repo_id {featureRepoId.slice(0, 16)}…
+        </Typography.Text>
         <Space>
-          <Typography.Text type="secondary" copyable style={{ fontSize: 12 }}>
-            repo_id {featureRepoId.slice(0, 16)}…
-          </Typography.Text>
           <Button
             icon={<ReloadOutlined />}
             onClick={() => window.location.reload()}
@@ -109,17 +37,27 @@ export default function FeatureReviewPage(): ReactNode {
         </Space>
       </div>
       <Tabs
-        defaultActiveKey="features"
+        activeKey={tab}
+        onChange={setTab}
+        style={{ flex: 1, minHeight: 0 }}
         items={[
           {
-            key: 'features',
-            label: '功能',
-            children: <FeatureList featureRepoId={featureRepoId} />,
+            key: 'viewer',
+            label: '查看',
+            children: <ViewerTab featureRepoId={featureRepoId} mr={mr} onMrChange={setMr} />,
           },
           {
-            key: 'changelog',
-            label: 'Changelog',
-            children: <ChangelogPanel featureRepoId={featureRepoId} />,
+            key: 'mrs',
+            label: 'MR 记录',
+            children: (
+              <MrTab
+                featureRepoId={featureRepoId}
+                onOpenViewer={(name) => {
+                  setMr(name)
+                  setTab('viewer')
+                }}
+              />
+            ),
           },
         ]}
       />

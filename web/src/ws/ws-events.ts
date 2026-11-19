@@ -74,6 +74,17 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
       if (message === '') return null
       return { type: 'log', level: asStr(raw.level, 'info'), message }
     }
+    case 'clone_done': {
+      const repoId = asId(raw.repo_id)
+      if (repoId === null) return null
+      return { type: 'clone_done', repo_id: repoId }
+    }
+    case 'clone_failed': {
+      const repoId = asId(raw.repo_id)
+      const error = asStr(raw.error)
+      if (repoId === null || error === '') return null
+      return { type: 'clone_failed', repo_id: repoId, error }
+    }
     default:
       return null
   }

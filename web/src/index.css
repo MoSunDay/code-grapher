@@ -205,3 +205,83 @@ body {
   height: 0;
   border-top: 2px solid;
 }
+
+/* ---------- 功能评审：markdown 渲染（暗色） ---------- */
+.markdown-view h1,
+.markdown-view h2,
+.markdown-view h3,
+.markdown-view h4 {
+  color: #e6edf3;
+  margin: 0.8em 0 0.4em;
+  line-height: 1.35;
+}
+.markdown-view h1 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 0.3em;
+}
+.markdown-view h2 {
+  font-size: 1.3em;
+  border-bottom: 1px solid #21262d;
+  padding-bottom: 0.25em;
+}
+.markdown-view p,
+.markdown-view li {
+  color: #c9d1d9;
+  line-height: 1.7;
+}
+.markdown-view ul,
+.markdown-view ol {
+  padding-left: 1.6em;
+}
+.markdown-view ul {
+  list-style: disc;
+}
+.markdown-view ol {
+  list-style: decimal;
+}
+.markdown-view code {
+  background: #21262d;
+  border-radius: 4px;
+  padding: 0.15em 0.35em;
+  color: #79c0ff;
+  font-size: 0.92em;
+}
+.markdown-view pre {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 12px;
+  overflow: auto;
+}
+.markdown-view pre code {
+  background: none;
+  padding: 0;
+  color: #c9d1d9;
+}
+.markdown-view blockquote {
+  border-left: 3px solid #30363d;
+  margin: 0.6em 0;
+  padding: 0.1em 0.9em;
+  color: #8b949e;
+}
+.markdown-view table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+.markdown-view th,
+.markdown-view td {
+  border: 1px solid #30363d;
+  padding: 4px 10px;
+  color: #c9d1d9;
+}
+.markdown-view th {
+  background: #161b22;
+}
+.markdown-view a {
+  color: #58a6ff;
+}
+.markdown-view hr {
+  border: none;
+  border-top: 1px solid #30363d;
+}

@@ -26,6 +26,8 @@ export interface RepoStats {
   pending_tasks: number
 }
 
+export type RepoStatus = 'cloning' | 'ready' | 'failed'
+
 export interface Repo {
   id: Id
   name: string
@@ -33,17 +35,19 @@ export interface Repo {
   git_url?: string | null
   /** sha256(canonical git_url)；缺失/非法 git_url 时为 null，功能评审不可用 */
   feature_repo_id?: string | null
+  /** cloning = 后台克隆中；failed 见 error */
+  status?: RepoStatus
+  error?: string | null
   stats?: RepoStats
 }
 export interface RepoList {
   repos: Repo[]
 }
 
-export interface CreateRepoInput {
-  path: string
-  name?: string
-  git_url?: string
-}
+/** url 模式：服务端后台 git clone + 自动索引；path 模式：注册本地已存在的 checkout */
+export type CreateRepoInput =
+  | { url: string; name?: string }
+  | { path: string; name?: string; git_url?: string }
 export interface IndexRunRef {
   run_id: Id
 }
@@ -219,41 +223,84 @@ export interface LogEvent {
   level: string
   message: string
 }
-export type WsEvent = IndexProgressEvent | IndexDoneEvent | TaskUpdateEvent | LogEvent
+export interface CloneDoneEvent {
+  type: 'clone_done'
+  repo_id: Id
+}
+export interface CloneFailedEvent {
+  type: 'clone_failed'
+  repo_id: Id
+  error: string
+}
+export type WsEvent =
+  | IndexProgressEvent
+  | IndexDoneEvent
+  | TaskUpdateEvent
+  | LogEvent
+  | CloneDoneEvent
+  | CloneFailedEvent
 
 export function toId(value: string): Id {
   const n = Number(value)
   return Number.isFinite(n) && String(n) === value ? n : value
 }
 
-export type FeatureState = 'draft' | 'stable'
+export type MrState = 'open' | 'merged'
 
-export interface FeatureSummary {
+export interface MrSummary {
   name: string
-  state: FeatureState
-  hash: string | null
+  state: MrState
+  tip: string
+  ahead: number
+  behind: number
+  author: string
+  updated_at: number
+  reviewer: string | null
+  merge_commit: string | null
+  merged_at: number | null
+  changelog: string | null
 }
 
-export interface FeatureList {
+export interface MrList {
   repo_id: string
-  features: FeatureSummary[]
+  mrs: MrSummary[]
 }
 
-export interface FeatureData {
-  name: string
-  function_entry: unknown
-  request_chain: unknown
-  external_dependencies: unknown
-  function_summary: unknown
-  children: unknown
+export type FileBadge = 'draft' | 'stable'
+export type RenderHint = 'markdown' | 'json' | 'text'
+
+export interface TreeFile {
+  path: string
+  size: number
+  state: FileBadge
+  render: RenderHint
 }
 
-export interface FeatureDetail {
+export interface FeatureTree {
   repo_id: string
-  name: string
-  state: FeatureState
+  mr: string | null
+  files: TreeFile[]
+}
+
+export interface BlobContent {
+  path: string
+  size: number
+  truncated: boolean
+  content: string
+  render: RenderHint
+}
+
+export interface MrCommit {
   hash: string
-  feature: FeatureData
+  author: string
+  timestamp: number
+  subject: string
+}
+
+export interface MrCommits {
+  repo_id: string
+  name: string
+  commits: MrCommit[]
 }
 
 export interface FeatureDiff {
@@ -265,13 +312,14 @@ export interface FeatureDiff {
 export interface FeatureDraftResult {
   repo_id: string
   outcome: 'draft' | 'noop'
-  rel_path?: string
+  commit?: string
 }
 
 export interface FeatureApproveResult {
   repo_id: string
   ok: boolean
-  commit: string
+  merge_commit: string
+  mr_commit: string
   changelog: string
 }
 

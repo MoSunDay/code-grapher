@@ -25,6 +25,15 @@ export default function DashboardPage(): ReactNode {
       setLogs((prev) => [...prev.slice(-49), `[${event.level}] ${event.message}`])
       return
     }
+    if (event.type === 'clone_done' || event.type === 'clone_failed') {
+      void queryClient.invalidateQueries({ queryKey: ['repos'] })
+      if (event.type === 'clone_done') {
+        message.success('仓库克隆完成，开始解析与理解')
+      } else {
+        message.error(`仓库克隆失败：${event.error}`)
+      }
+      return
+    }
     const forCurrent = repoId !== null && String(event.repo_id) === String(repoId)
     if (!forCurrent) return
     if (event.type === 'index_progress') {
@@ -60,7 +69,7 @@ export default function DashboardPage(): ReactNode {
   }, [logs])
 
   if (!reposLoading && repos.length === 0) {
-    return <Empty description="尚未添加仓库：点击顶部「添加」按钮注册一个本地仓库路径" />
+    return <Empty description="尚未添加仓库：点击顶部「添加」按钮，粘贴仓库 URL 即可注册并自动解析" />
   }
 
   const runs = statsQuery.data?.recent_runs ?? []

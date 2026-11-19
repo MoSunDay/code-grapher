@@ -1,24 +1,47 @@
 import { PlusOutlined } from '@ant-design/icons'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { App, Button, Form, Input, Modal, Select, Space, Typography } from 'antd'
+import { App, Button, Collapse, Form, Input, Modal, Select, Space, Typography } from 'antd'
 import { useState, type ReactNode } from 'react'
 import type { CreateRepoInput, Id, Repo } from '../api/types'
 import { createRepo } from '../api/repos'
 import { useRepo } from '../repo/use-repo'
 
+interface AddRepoFormValues {
+  url?: string
+  path?: string
+  name?: string
+  git_url?: string
+}
+
 function AddRepoModal({ open, onClose }: { open: boolean; onClose: () => void }): ReactNode {
   const { message } = App.useApp()
-  const [form] = Form.useForm<CreateRepoInput>()
+  const [form] = Form.useForm<AddRepoFormValues>()
   const queryClient = useQueryClient()
   const mutation = useMutation({
     mutationFn: (values: CreateRepoInput) => createRepo(values),
     onSuccess: (repo: Repo) => {
-      message.success(`已添加仓库：${repo.name}`)
+      if (repo.status === 'cloning') {
+        message.success(`注册成功：${repo.name}，正在克隆并开始解析…`)
+      } else {
+        message.success(`已添加仓库：${repo.name}，已开始解析`)
+      }
       void queryClient.invalidateQueries({ queryKey: ['repos'] })
       form.resetFields()
       onClose()
     },
   })
+
+  const onFinish = (values: AddRepoFormValues): void => {
+    const url = values.url?.trim() ?? ''
+    const path = values.path?.trim() ?? ''
+    const name = values.name?.trim() === '' ? undefined : values.name?.trim()
+    if (url !== '') {
+      mutation.mutate({ url, name })
+    } else {
+      mutation.mutate({ path, name, git_url: values.git_url?.trim() || undefined })
+    }
+  }
+
   return (
     <Modal
       title="添加仓库"
@@ -28,23 +51,70 @@ function AddRepoModal({ open, onClose }: { open: boolean; onClose: () => void })
       onOk={() => form.submit()}
       destroyOnClose
     >
-      <Form form={form} layout="vertical" onFinish={(values) => mutation.mutate(values)}>
+      <Form form={form} layout="vertical" onFinish={onFinish}>
         <Form.Item
-          name="path"
-          label="本地路径"
-          rules={[{ required: true, message: '请输入仓库本地路径' }]}
+          name="url"
+          label="仓库 URL"
+          validateFirst
+          dependencies={['path']}
+          rules={[
+            ({ getFieldValue }) => ({
+              validator(_, value: string | undefined) {
+                if ((value ?? '').trim() !== '' || (getFieldValue('path') ?? '').trim() !== '') {
+                  return Promise.resolve()
+                }
+                return Promise.reject(new Error('请输入仓库 URL，或展开高级选项填写本地路径'))
+              },
+            }),
+          ]}
         >
-          <Input placeholder="/data2/your-repo" autoFocus />
+          <Input placeholder="https://github.com/org/repo" autoFocus />
         </Form.Item>
         <Form.Item name="name" label="名称（可选）">
-          <Input placeholder="默认取路径末段" />
+          <Input placeholder="默认取 URL 末段" />
         </Form.Item>
-        <Form.Item name="git_url" label="Git URL（可选）">
-          <Input placeholder="https://github.com/org/repo" />
-        </Form.Item>
+        <Collapse
+          ghost
+          items={[
+            {
+              key: 'advanced',
+              label: '高级：本地已有 checkout',
+              children: (
+                <>
+                  <Form.Item
+                    name="path"
+                    label="本地路径"
+                    dependencies={['url']}
+                    rules={[
+                      ({ getFieldValue }) => ({
+                        validator(_, value: string | undefined) {
+                          if ((value ?? '').trim() !== '' || (getFieldValue('url') ?? '').trim() !== '') {
+                            return Promise.resolve()
+                          }
+                          return Promise.reject(new Error('本地路径与仓库 URL 至少填一项'))
+                        },
+                      }),
+                    ]}
+                  >
+                    <Input placeholder="/data2/your-repo（已存在的本地克隆）" />
+                  </Form.Item>
+                  <Form.Item name="git_url" label="Git URL（可选，本地模式用于功能评审身份）">
+                    <Input placeholder="https://github.com/org/repo" />
+                  </Form.Item>
+                </>
+              ),
+            },
+          ]}
+        />
       </Form>
     </Modal>
   )
+}
+
+function repoLabel(name: string, status?: string): string {
+  if (status === 'cloning') return `${name}（克隆中…）`
+  if (status === 'failed') return `${name}（克隆失败）`
+  return name
 }
 
 export function RepoSelector(): ReactNode {
@@ -61,7 +131,7 @@ export function RepoSelector(): ReactNode {
         showSearch
         optionFilterProp="label"
         onChange={(value) => setRepoId(value)}
-        options={repos.map((r) => ({ value: r.id, label: r.name }))}
+        options={repos.map((r) => ({ value: r.id, label: repoLabel(r.name, r.status) }))}
       />
       <Button icon={<PlusOutlined />} onClick={() => setOpen(true)}>
         添加
