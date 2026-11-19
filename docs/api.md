@@ -21,14 +21,14 @@
 - `POST /api/repos/{id}/index` body `{full?:bool}` → `{ok:true}`（或 `{run_id:null,already_running:true}`）；`status=cloning` 时返回 409；进度走 WS
 - `POST /api/repos/{id}/analyze` → `{enqueued:N}`（为全部函数入队 hidden_calls 任务）
 - `GET /api/repos/{id}` → `{repo, last_run, stats, feature_repo_id}`
-- Repo 响应均含计算字段 `feature_repo_id = sha256(canonical(git_url))`；`git_url` 缺失或非法时为 `null`（前端据此提示“该仓库未配置可用 git_url，无法使用功能评审”）
+- Repo 响应均含计算字段 `feature_repo_id = sha256(canonical(git_url))`；`git_url` 缺失或非法时为 `null`（前端据此提示“该仓库未配置 Git URL，仓库理解不可用”并引导补填 Git URL 或改选 URL 注册的仓库）
 
-## Features（功能评审，MR 分支模型，git_url 身份）
+## Features（仓库理解，MR 分支模型，git_url 身份）
 `repo_id` 一律是 `sha256(canonical_git_url)`（64 位小写 hex），不是数据库自增 ID。每个 `repo_id` 在 feature-root 下是**一个独立 git 文档仓库**：`main` = 已合并稳定态，`mr/<功能名>` 分支 = 该功能的草稿（MR），`docs/<功能名>/` = 该 MR 的文件命名空间（任意 `.md`/`.json` 等文本树），`_changelog/` = 审批记录。MR 唯一 ID 即 `name`（中文可用；拒绝空格、`/`、`~^:?*[\\`、`..`、`.lock` 结尾、`_` 前缀保留名、控制字符，≤128 字节）。
 
 - `GET /api/features/{repo_id}/mrs` → `{repo_id, mrs:[{name,state:'open'|'merged',tip,ahead,behind,author,updated_at,reviewer?,merge_commit?,merged_at?,changelog?}]}`（新到旧；分区不存在返回空列表）
-- `GET /api/features/{repo_id}/tree?mr=NAME` → `{repo_id, mr, files:[{path,size,state:'draft'|'stable',render:'markdown'|'json'|'text'}]}`；`mr` 省略 = main；`draft` = 该文件相对 main 有差异；不存在 404
-- `GET /api/features/{repo_id}/blob?path=P&mr=NAME` → `{path,size,truncated,content,render}`；内容超 512KB 截断（`truncated:true`）；不存在 404
+- `GET /api/features/{repo_id}/tree?mr=NAME` → `{repo_id, mr, files:[{path,size,state:'draft'|'stable',render:'markdown'|'json'|'text'}]}`；`mr` 省略 = main；`draft` = 该文件相对 main 有差异；`mr` 不存在 404；分区不存在时自动初始化空存储并返回空树 200
+- `GET /api/features/{repo_id}/blob?path=P&mr=NAME` → `{path,size,truncated,content,render}`；内容超 512KB 截断（`truncated:true`）；文件不存在 404；分区不存在时自动初始化空存储（同 tree）
 - `GET /api/features/{repo_id}/changelog` → `{repo_id, changelog:[{file,markdown}]}`（新到旧）
 - `POST /api/features/{repo_id}/draft` body `{name, files:[{path,content}]}` → `{repo_id, outcome:'draft', commit} | {outcome:'noop'}`；把 `files` 镜像到 `mr/<name>` 分支并 commit（内容不变为 noop）；`path` 必须位于 `docs/<name>/` 之下；绝不 approve
 - `GET /api/features/{repo_id}/{feature_name}/diff` → `{repo_id,name,diff}`（`git diff main...mr/<name>` 的 unified diff；已合并为空串）

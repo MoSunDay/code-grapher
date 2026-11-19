@@ -7,6 +7,9 @@ web/node_modules/
 web/dist/
 web/.vite/
 
+# runtime data (feature git stores / clones)
+repos/
+
 # local databases & env
 *.db
 *.db-*

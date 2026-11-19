@@ -34,6 +34,21 @@ fn internal(error: impl std::fmt::Display) -> (StatusCode, Json<Value>) {
     )
 }
 
+/// First-visit self-heal for read paths: ensure the partition's git storage
+/// exists (idempotent) so `tree`/`blob` answer 200 with an empty store
+/// instead of 404 before any draft has been written.
+fn ensure_partition(root: &std::path::Path, repo_id: &str) -> anyhow::Result<()> {
+    let repo = cg_feature::repo_dir(&cg_feature::paths::canonical_root(root)?, repo_id)?;
+    match std::fs::create_dir_all(&repo) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(error) => {
+            return Err(anyhow::anyhow!("create {}: {error}", repo.display()));
+        }
+    }
+    cg_feature::git::ensure_repo(&repo)
+}
+
 fn check_repo_id(repo_id: &str) -> Result<(), (StatusCode, Json<Value>)> {
     validate_repo_id(repo_id).map_err(bad_request)
 }
@@ -64,6 +79,7 @@ pub async fn tree(
     let partition = repo_id.clone();
     let mr = query.mr.clone();
     let files = run(state.cfg.feature_root.clone(), move |root| {
+        ensure_partition(root, &partition)?;
         ops::tree(root, &partition, mr.as_deref())
     })
     .await?;
@@ -86,6 +102,7 @@ pub async fn blob(
     let partition = repo_id.clone();
     let BlobQuery { path, mr } = query;
     let blob = run(state.cfg.feature_root.clone(), move |root| {
+        ensure_partition(root, &partition)?;
         ops::blob(root, &partition, mr.as_deref(), &path)
     })
     .await?;

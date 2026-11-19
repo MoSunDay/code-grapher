@@ -33,7 +33,7 @@ export interface Repo {
   name: string
   path: string
   git_url?: string | null
-  /** sha256(canonical git_url)；缺失/非法 git_url 时为 null，功能评审不可用 */
+  /** sha256(canonical git_url)；缺失/非法 git_url 时为 null，仓库理解不可用 */
   feature_repo_id?: string | null
   /** cloning = 后台克隆中；failed 见 error */
   status?: RepoStatus

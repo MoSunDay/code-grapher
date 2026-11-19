@@ -101,7 +101,7 @@ function AddRepoModal({ open, onClose }: { open: boolean; onClose: () => void })
                   >
                     <Input placeholder="/data2/your-repo（已存在的本地克隆）" />
                   </Form.Item>
-                  <Form.Item name="git_url" label="Git URL（可选，本地模式用于功能评审身份）">
+                  <Form.Item name="git_url" label="Git URL（可选，本地模式用于仓库理解身份）">
                     <Input placeholder="https://github.com/org/repo" />
                   </Form.Item>
                 </>

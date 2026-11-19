@@ -116,7 +116,7 @@ cg-feature changelog GIT_URL
 See `docs/api.md` → “Features”. Routes are addressed by repo_id (the sha256
 hex), not the database ID; repo responses expose a computed
 `feature_repo_id` (null when `git_url` is missing or unparseable, and the web
-UI then shows 该仓库未配置可用 git_url，无法使用功能评审).
+UI then shows 该仓库未配置 Git URL，仓库理解不可用 — 补填 Git URL 或改选 URL 注册的仓库).
 
 ## Scheduler usage
 
