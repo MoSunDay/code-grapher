@@ -1,0 +1,16 @@
+[package]
+name = "cg-feature"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Git-backed feature review storage keyed by canonical git URL identity"
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+clap.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -31,6 +31,8 @@ export interface Repo {
   name: string
   path: string
   git_url?: string | null
+  /** sha256(canonical git_url)；缺失/非法 git_url 时为 null，功能评审不可用 */
+  feature_repo_id?: string | null
   stats?: RepoStats
 }
 export interface RepoList {
@@ -216,4 +218,63 @@ export type WsEvent = IndexProgressEvent | IndexDoneEvent | TaskUpdateEvent | Lo
 export function toId(value: string): Id {
   const n = Number(value)
   return Number.isFinite(n) && String(n) === value ? n : value
+}
+
+export type FeatureState = 'draft' | 'stable'
+
+export interface FeatureSummary {
+  name: string
+  state: FeatureState
+  hash: string | null
+}
+
+export interface FeatureList {
+  repo_id: string
+  features: FeatureSummary[]
+}
+
+export interface FeatureData {
+  name: string
+  function_entry: unknown
+  request_chain: unknown
+  external_dependencies: unknown
+  function_summary: unknown
+  children: unknown
+}
+
+export interface FeatureDetail {
+  repo_id: string
+  name: string
+  state: FeatureState
+  hash: string
+  feature: FeatureData
+}
+
+export interface FeatureDiff {
+  repo_id: string
+  name: string
+  diff: string
+}
+
+export interface FeatureDraftResult {
+  repo_id: string
+  outcome: 'draft' | 'noop'
+  rel_path?: string
+}
+
+export interface FeatureApproveResult {
+  repo_id: string
+  ok: boolean
+  commit: string
+  changelog: string
+}
+
+export interface ChangelogEntry {
+  file: string
+  markdown: string
+}
+
+export interface ChangelogList {
+  repo_id: string
+  changelog: ChangelogEntry[]
 }

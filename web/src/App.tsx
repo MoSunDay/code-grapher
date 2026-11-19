@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { AppLayout } from './layout/AppLayout'
 import DashboardPage from './pages/DashboardPage'
+import FeatureReviewPage from './pages/features/FeatureReviewPage'
 import FilesPage from './pages/FilesPage'
 import FunctionsPage from './pages/FunctionsPage'
 import SettingsPage from './pages/SettingsPage'
@@ -11,6 +12,7 @@ export default function App() {
     <Routes>
       <Route element={<AppLayout />}>
         <Route index element={<DashboardPage />} />
+        <Route path="features" element={<FeatureReviewPage />} />
         <Route path="files" element={<FilesPage />} />
         <Route path="functions" element={<FunctionsPage />} />
         <Route path="tasks" element={<TasksPage />} />

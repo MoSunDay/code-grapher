@@ -14,6 +14,8 @@ pub struct ServerConfig {
     pub analyzer: bool,
     /// Built SPA directory served at `/` (web/dist); empty disables static hosting.
     pub web_dist: Option<std::path::PathBuf>,
+    /// Git-backed feature review root (`<root>/<repo_id>/<feature_name>/`).
+    pub feature_root: std::path::PathBuf,
 }
 
 impl Default for ServerConfig {
@@ -24,6 +26,7 @@ impl Default for ServerConfig {
             watch: true,
             analyzer: true,
             web_dist: default_web_dist(),
+            feature_root: default_feature_root(),
         }
     }
 }
@@ -36,6 +39,12 @@ pub fn default_web_dist() -> Option<std::path::PathBuf> {
     }
     let d = std::path::PathBuf::from("web/dist");
     d.is_dir().then_some(d)
+}
+
+/// Feature review storage root; env override or platform data home, with a
+/// local fallback for environments lacking HOME.
+pub fn default_feature_root() -> std::path::PathBuf {
+    cg_feature::resolve_feature_root(None).unwrap_or_else(|_| std::path::PathBuf::from("./feature-data"))
 }
 
 #[derive(Clone)]

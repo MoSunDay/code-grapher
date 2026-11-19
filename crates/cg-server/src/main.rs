@@ -9,6 +9,7 @@ fn main() -> anyhow::Result<()> {
         watch: !has_flag("--no-watch"),
         analyzer: !has_flag("--no-analyzer"),
         web_dist: cg_server::state::default_web_dist(),
+        feature_root: cg_server::state::default_feature_root(),
     };
     tracing_subscriber::fmt()
         .with_env_filter(

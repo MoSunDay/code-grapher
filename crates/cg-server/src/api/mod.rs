@@ -8,6 +8,7 @@ pub async fn health(State(_): State<crate::state::AppState>) -> Json<serde_json:
     Json(serde_json::json!({ "status": "ok", "version": env!("CARGO_PKG_VERSION") }))
 }
 
+pub mod features;
 pub mod files;
 pub mod repos;
 pub mod stats;
@@ -22,6 +23,20 @@ use tower_http::cors::CorsLayer;
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/repos", get(repos::list).post(repos::create))
+        .route(
+            "/api/features/{repo_id}",
+            get(features::list).post(features::draft),
+        )
+        .route("/api/features/{repo_id}/changelog", get(features::changelog))
+        .route("/api/features/{repo_id}/{feature_name}", get(features::get))
+        .route(
+            "/api/features/{repo_id}/{feature_name}/diff",
+            get(features::diff),
+        )
+        .route(
+            "/api/features/{repo_id}/{feature_name}/approve",
+            post(features::approve),
+        )
         .route("/api/repos/{id}", delete(repos::remove).get(repos::status))
         .route("/api/repos/{id}/index", post(repos::trigger_index))
         .route("/api/repos/{id}/analyze", post(repos::trigger_analyze))

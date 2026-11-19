@@ -3,6 +3,7 @@
 use crate::count;
 use anyhow::Result;
 use cg_core::Repo;
+use cg_feature::feature_repo_id;
 use libsql::{params, Connection};
 use serde::Serialize;
 
@@ -19,6 +20,13 @@ pub struct RepoWithStats {
     #[serde(flatten)]
     pub repo: Repo,
     pub stats: RepoStats,
+    /// sha256(canonical git_url); null when git_url is missing or unparseable.
+    pub feature_repo_id: Option<String>,
+}
+
+/// Computed feature identity for any repo row.
+pub fn feature_repo_id_of(repo: &Repo) -> Option<String> {
+    feature_repo_id(repo.git_url.as_deref())
 }
 
 fn map_repo(row: &libsql::Row) -> Result<Repo> {
@@ -65,7 +73,8 @@ pub async fn list(conn: &Connection) -> Result<Vec<RepoWithStats>> {
             )
             .await?,
         };
-        out.push(RepoWithStats { repo, stats });
+        let feature_repo_id = feature_repo_id_of(&repo);
+        out.push(RepoWithStats { repo, stats, feature_repo_id });
     }
     Ok(out)
 }

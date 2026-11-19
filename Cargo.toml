@@ -7,6 +7,7 @@ members = [
     "crates/cg-analyzer",
     "crates/cg-server",
     "crates/cg-cli",
+    "crates/cg-feature",
 ]
 
 [workspace.package]
@@ -20,6 +21,7 @@ cg-db = { path = "crates/cg-db" }
 cg-indexer = { path = "crates/cg-indexer" }
 cg-analyzer = { path = "crates/cg-analyzer" }
 cg-server = { path = "crates/cg-server" }
+cg-feature = { path = "crates/cg-feature" }
 anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
@@ -27,6 +29,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal"] }
 axum = { version = "0.8", features = ["ws"] }
 tower-http = { version = "0.7", features = ["cors", "trace", "fs"] }
+tower = { version = "0.5", features = ["util"] }
 libsql = "0.10"
 tree-sitter = "0.25"
 tree-sitter-rust = "0.24"
@@ -34,6 +37,7 @@ notify = "8"
 notify-debouncer-full = "0.7"
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.13", features = ["json"] }
+sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"

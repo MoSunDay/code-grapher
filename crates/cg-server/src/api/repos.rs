@@ -5,6 +5,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use cg_db::{repos, runs};
+use cg_feature::feature_repo_id;
 use serde::Deserialize;
 
 pub async fn list(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -31,7 +32,8 @@ pub async fn create(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     state.emit(&serde_json::json!({"type": "repo_added", "repo_id": repo.id}));
-    Ok(Json(serde_json::json!({ "repo": repo })))
+    let feature_repo_id = feature_repo_id(repo.git_url.as_deref());
+    Ok(Json(serde_json::json!({ "repo": repo, "feature_repo_id": feature_repo_id })))
 }
 
 pub async fn remove(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<serde_json::Value>, StatusCode> {
@@ -117,7 +119,13 @@ pub async fn status(State(state): State<AppState>, Path(id): Path<i64>) -> Resul
     let last_run = runs::last(&state.db, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(Json(serde_json::json!({ "repo": repo, "stats": stats, "last_run": last_run })))
+    let feature_repo_id = feature_repo_id(repo.git_url.as_deref());
+    Ok(Json(serde_json::json!({
+        "repo": repo,
+        "stats": stats,
+        "last_run": last_run,
+        "feature_repo_id": feature_repo_id,
+    })))
 }
 
 fn path_tail(path: &str) -> String {

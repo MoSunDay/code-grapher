@@ -1,5 +1,6 @@
 import {
   DashboardOutlined,
+  FileDoneOutlined,
   FolderOpenOutlined,
   FunctionOutlined,
   SettingOutlined,
@@ -13,6 +14,7 @@ import { RepoSelector } from './RepoSelector'
 
 const NAV_ITEMS = [
   { key: '/', icon: <DashboardOutlined />, label: 'Dashboard' },
+  { key: '/features', icon: <FileDoneOutlined />, label: '功能评审' },
   { key: '/files', icon: <FolderOpenOutlined />, label: 'Files' },
   { key: '/functions', icon: <FunctionOutlined />, label: 'Functions' },
   { key: '/tasks', icon: <UnorderedListOutlined />, label: 'Tasks' },

@@ -14,7 +14,18 @@
 - `DELETE /api/repos/{id}` → `{ok:true}`
 - `POST /api/repos/{id}/index` body `{full?:bool}` → `{run_id}`；进度走 WS
 - `POST /api/repos/{id}/analyze` → `{enqueued:N}`（为全部函数入队 hidden_calls 任务）
-- `GET /api/repos/{id}/status` → `{repo, last_run, stats}`
+- `GET /api/repos/{id}/status` → `{repo, last_run, stats, feature_repo_id}`
+- Repo 响应均含计算字段 `feature_repo_id = sha256(canonical(git_url))`；`git_url` 缺失或非法时为 `null`（前端据此提示“该仓库未配置可用 git_url，无法使用功能评审”）
+
+## Features（功能评审，git_url 身份）
+`repo_id` 一律是 `sha256(canonical_git_url)`（64 位小写 hex），不是数据库自增 ID。功能唯一 ID 即 `name`，`name` 直接作为目录名（支持中文/空格，拒绝 `/`、`..`、控制字符、`_` 前缀保留名）。生命周期只由 git 表达：`feature.json` 有未提交变更 = draft，approve 产生的 commit = stable。
+
+- `GET /api/features/{repo_id}` → `{repo_id, features:[{name,state:'draft'|'stable',hash}]}`（空仓库返回空列表）
+- `POST /api/features/{repo_id}` body 为 feature JSON（含 `id` 字段会被拒绝）→ `{repo_id, outcome:'draft'|'noop', rel_path?}`；只刷新 draft，绝不 commit
+- `GET /api/features/{repo_id}/{feature_name}` → `{repo_id,name,state,hash,feature}`；不存在返回 404
+- `GET /api/features/{repo_id}/{feature_name}/diff` → `{repo_id,name,diff}`（`git diff HEAD` 的 unified diff，新文件对比 /dev/null；稳定态 diff 为空串）
+- `POST /api/features/{repo_id}/{feature_name}/approve` body `{reviewer, note?, expected_hash?}` → `{repo_id, ok:true, commit, changelog}`；`expected_hash` 与当前 feature.json sha256 不符时拒绝；仅提交该 feature.json 与对应 changelog 文件，其他脏文件不入 commit
+- `GET /api/features/{repo_id}/changelog` → `{repo_id, changelog:[{file,markdown}]}`（新到旧）
 
 ## Files
 - `GET /api/repos/{id}/files` → `{files:[{id,path,lang,loc,mtime,parsed_at,symbol_count}]}`

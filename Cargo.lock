@@ -449,6 +449,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -471,6 +472,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cg-core",
+ "cg-feature",
  "libsql",
  "serde",
  "serde_json",
@@ -478,6 +480,18 @@ dependencies = [
  "thiserror 2.0.21",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "cg-feature"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]
@@ -506,13 +520,16 @@ dependencies = [
  "cg-analyzer",
  "cg-core",
  "cg-db",
+ "cg-feature",
  "cg-indexer",
  "futures",
  "libsql",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tokio-stream",
+ "tower 0.5.3",
  "tower-http 0.7.1",
  "tracing",
  "tracing-subscriber",
@@ -2673,6 +2690,17 @@ name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a978451301f4db1d02937a4ab3ccce137717b81826e79b7d49ffe3244a13c3b8"
+dependencies = [
+ "cfg-if",
+ "cpufeatures 0.2.17",
+ "digest",
+]
+
+[[package]]
+name = "sha2"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
