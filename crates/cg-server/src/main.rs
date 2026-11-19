@@ -10,6 +10,7 @@ fn main() -> anyhow::Result<()> {
         analyzer: !has_flag("--no-analyzer"),
         web_dist: cg_server::state::default_web_dist(),
         feature_root: cg_server::state::default_feature_root(),
+        clones_root: cg_server::state::default_clones_root(),
     };
     tracing_subscriber::fmt()
         .with_env_filter(
