@@ -9,23 +9,30 @@
 - TaskStatus: `pending | running | done | failed`
 
 ## Repos
-- `GET /api/repos` → `{repos:[Repo]}`，Repo 含 `stats:{files,symbols,edges,pending_tasks}`
-- `POST /api/repos` body `{path, name?, git_url?}` → `{repo}`
-- `DELETE /api/repos/{id}` → `{ok:true}`
-- `POST /api/repos/{id}/index` body `{full?:bool}` → `{run_id}`；进度走 WS
+- `GET /api/repos` → `{repos:[Repo]}`，Repo 含 `stats:{files,symbols,edges,pending_tasks}` 与 `status`
+- `POST /api/repos` 两种模式，**注册即自动触发全量索引**（索引完成自动入队 LLM 理解任务）：
+  - url 模式（主路径）body `{url, name?}`：校验并归一化 url（`canonical_git_url`）→ 查重（同一 canonical url 已注册返回 409 + `{error, repo}`）→ 插入 `status:'cloning'` 行并**立即返回** → 后台 `git clone` 到 `clones_root`（`CG_REPOS_DIR` 覆盖，默认 `./repos`；克隆禁用终端交互，私有仓库凭证走服务器 git 环境）→ 成功置 `ready`、WS 推 `clone_done`、启动 watcher 并自动索引；失败置 `failed`（`error` 带原因）、WS 推 `clone_failed`。克隆目录名 `净化名-fnv1a16(url)` 防穿越/防冲突。服务重启时中断的 cloning 行置 `failed`
+  - path 模式（兼容）body `{path, name?, git_url?}`：注册本地已存在 checkout，upsert 后同样自动索引
+- Repo 新增 `status: cloning|ready|failed` 与 `error`（failed 时的原因）
+- `DELETE /api/repos/{id}` → `{ok:true}`（本期不删除 clones_root 下的克隆目录）
+- `POST /api/repos/{id}/index` body `{full?:bool}` → `{ok:true}`（或 `{run_id:null,already_running:true}`）；`status=cloning` 时返回 409；进度走 WS
 - `POST /api/repos/{id}/analyze` → `{enqueued:N}`（为全部函数入队 hidden_calls 任务）
-- `GET /api/repos/{id}/status` → `{repo, last_run, stats, feature_repo_id}`
+- `GET /api/repos/{id}` → `{repo, last_run, stats, feature_repo_id}`
 - Repo 响应均含计算字段 `feature_repo_id = sha256(canonical(git_url))`；`git_url` 缺失或非法时为 `null`（前端据此提示“该仓库未配置可用 git_url，无法使用功能评审”）
 
-## Features（功能评审，git_url 身份）
-`repo_id` 一律是 `sha256(canonical_git_url)`（64 位小写 hex），不是数据库自增 ID。功能唯一 ID 即 `name`，`name` 直接作为目录名（支持中文/空格，拒绝 `/`、`..`、控制字符、`_` 前缀保留名）。生命周期只由 git 表达：`feature.json` 有未提交变更 = draft，approve 产生的 commit = stable。
+## Features（功能评审，MR 分支模型，git_url 身份）
+`repo_id` 一律是 `sha256(canonical_git_url)`（64 位小写 hex），不是数据库自增 ID。每个 `repo_id` 在 feature-root 下是**一个独立 git 文档仓库**：`main` = 已合并稳定态，`mr/<功能名>` 分支 = 该功能的草稿（MR），`docs/<功能名>/` = 该 MR 的文件命名空间（任意 `.md`/`.json` 等文本树），`_changelog/` = 审批记录。MR 唯一 ID 即 `name`（中文可用；拒绝空格、`/`、`~^:?*[\\`、`..`、`.lock` 结尾、`_` 前缀保留名、控制字符，≤128 字节）。
 
-- `GET /api/features/{repo_id}` → `{repo_id, features:[{name,state:'draft'|'stable',hash}]}`（空仓库返回空列表）
-- `POST /api/features/{repo_id}` body 为 feature JSON（含 `id` 字段会被拒绝）→ `{repo_id, outcome:'draft'|'noop', rel_path?}`；只刷新 draft，绝不 commit
-- `GET /api/features/{repo_id}/{feature_name}` → `{repo_id,name,state,hash,feature}`；不存在返回 404
-- `GET /api/features/{repo_id}/{feature_name}/diff` → `{repo_id,name,diff}`（`git diff HEAD` 的 unified diff，新文件对比 /dev/null；稳定态 diff 为空串）
-- `POST /api/features/{repo_id}/{feature_name}/approve` body `{reviewer, note?, expected_hash?}` → `{repo_id, ok:true, commit, changelog}`；`expected_hash` 与当前 feature.json sha256 不符时拒绝；仅提交该 feature.json 与对应 changelog 文件，其他脏文件不入 commit
+- `GET /api/features/{repo_id}/mrs` → `{repo_id, mrs:[{name,state:'open'|'merged',tip,ahead,behind,author,updated_at,reviewer?,merge_commit?,merged_at?,changelog?}]}`（新到旧；分区不存在返回空列表）
+- `GET /api/features/{repo_id}/tree?mr=NAME` → `{repo_id, mr, files:[{path,size,state:'draft'|'stable',render:'markdown'|'json'|'text'}]}`；`mr` 省略 = main；`draft` = 该文件相对 main 有差异；不存在 404
+- `GET /api/features/{repo_id}/blob?path=P&mr=NAME` → `{path,size,truncated,content,render}`；内容超 512KB 截断（`truncated:true`）；不存在 404
 - `GET /api/features/{repo_id}/changelog` → `{repo_id, changelog:[{file,markdown}]}`（新到旧）
+- `POST /api/features/{repo_id}/draft` body `{name, files:[{path,content}]}` → `{repo_id, outcome:'draft', commit} | {outcome:'noop'}`；把 `files` 镜像到 `mr/<name>` 分支并 commit（内容不变为 noop）；`path` 必须位于 `docs/<name>/` 之下；绝不 approve
+- `GET /api/features/{repo_id}/{feature_name}/diff` → `{repo_id,name,diff}`（`git diff main...mr/<name>` 的 unified diff；已合并为空串）
+- `GET /api/features/{repo_id}/{feature_name}/commits` → `{repo_id,name,commits:[{hash,author,timestamp,subject}]}`（旧→新；open = `main..branch`，merged = 该 merge 带入的分支侧提交）
+- `POST /api/features/{repo_id}/{feature_name}/approve` body `{reviewer, note?, expected_tip?}` → `{repo_id, ok:true, merge_commit, mr_commit, changelog}`；执行 `git merge --no-ff mr/<name>` 进 main（reviewer 为 merge 作者）+ 追加 `_changelog/YYYY-MM-DD-<name>-<hash6>.md`；`expected_tip` 与分支 tip 不符或已合并返回 409；冲突时 400（提示先刷新 draft）
+
+写路径（draft/approve）由 cg-feature 内部 `flock(<repo_id>/.lock)` 串行化；约定**每个分区仅一个写者**（即 cg-server 单实例）。读路径只走 git refs（`ls-tree`/`show`），无需锁、永不读到半写状态。
 
 ## Files
 - `GET /api/repos/{id}/files` → `{files:[{id,path,lang,loc,mtime,parsed_at,symbol_count}]}`
@@ -54,9 +61,13 @@
 
 ## WebSocket
 - `GET /ws/events`：JSON 文本帧
+  - `{type:"repo_added", repo_id}`
+  - `{type:"clone_done", repo_id}` / `{type:"clone_failed", repo_id, error}`
   - `{type:"index_progress", repo_id, run_id, done, total, phase}`
   - `{type:"index_done", repo_id, run_id, stats:{files_changed,symbols,edges,duration_ms}}`
+  - `{type:"index_failed", repo_id, error}`
   - `{type:"task_update", repo_id, task_id, status}`
+  - `{type:"analyze_enqueued", repo_id, count}`
   - `{type:"log", level, message}`
 
 ## 补充端点
