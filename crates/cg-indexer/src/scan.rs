@@ -16,6 +16,9 @@ pub struct ScannedFile {
 /// Recursively scan `root` for files the language registry can parse.
 /// Skips VCS/build/vendor directories.
 pub fn scan_repo(root: &Path) -> anyhow::Result<Vec<ScannedFile>> {
+    if !root.is_dir() {
+        anyhow::bail!("repository path is not a directory: {}", root.display());
+    }
     let mut out = Vec::new();
     walk(root, root, &mut out)?;
     out.sort_by(|a, b| a.rel_path.cmp(&b.rel_path));
@@ -62,4 +65,3 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<ScannedFile>) -> anyhow::Result<(
     }
     Ok(())
 }
-

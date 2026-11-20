@@ -11,14 +11,23 @@ pub async fn open(db_path: &std::path::Path) -> Result<Connection> {
     Ok(conn)
 }
 
-pub async fn add_repo(conn: &Connection, path: &str, name: Option<&str>, git_url: Option<&str>) -> Result<Repo> {
+pub async fn add_repo(
+    conn: &Connection,
+    path: &str,
+    name: Option<&str>,
+    git_url: Option<&str>,
+) -> Result<Repo> {
     let canonical = std::fs::canonicalize(path)
         .with_context(|| format!("repo path {path} not found"))?
         .to_string_lossy()
         .to_string();
-    let name = name
-        .map(str::to_string)
-        .unwrap_or_else(|| std::path::Path::new(path).file_name().unwrap().to_string_lossy().to_string());
+    let name = name.map(str::to_string).unwrap_or_else(|| {
+        std::path::Path::new(path)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string()
+    });
     repos::upsert(conn, &canonical, &name, git_url).await
 }
 
@@ -73,7 +82,11 @@ pub async fn query_symbols(
     Ok(serde_json::to_value(list)?)
 }
 
-pub async fn query_calls(conn: &Connection, _repo: &Repo, symbol_id: i64) -> Result<serde_json::Value> {
+pub async fn query_calls(
+    conn: &Connection,
+    _repo: &Repo,
+    symbol_id: i64,
+) -> Result<serde_json::Value> {
     let sym = symbols::get(conn, symbol_id)
         .await?
         .ok_or_else(|| anyhow!("symbol {symbol_id} not found"))?;
@@ -88,8 +101,18 @@ pub async fn file_show(conn: &Connection, repo: &Repo, rel: &str) -> Result<serd
         .ok_or_else(|| anyhow!("file {rel} not indexed in repo {}", repo.name))?;
     let abs = std::path::Path::new(&repo.path).join(&f.path);
     let content = tokio::fs::read_to_string(&abs).await?;
-    let (_, syms) = symbols::list(conn, repo.id, &symbols::SymbolFilter {
-        kind: None, q: None, file_id: Some(f.id), limit: 1000, offset: 0 }).await?;
+    let (_, syms) = symbols::list(
+        conn,
+        repo.id,
+        &symbols::SymbolFilter {
+            kind: None,
+            q: None,
+            file_id: Some(f.id),
+            limit: 1000,
+            offset: 0,
+        },
+    )
+    .await?;
     Ok(serde_json::json!({ "file": f, "symbols": syms, "content": content }))
 }
 
@@ -100,23 +123,45 @@ pub async fn run_status(conn: &Connection, repo: &Repo) -> Result<serde_json::Va
 
 /// Local watch loop (no HTTP server): re-index on file changes.
 pub async fn watch(conn: Connection, repo: Repo) -> Result<()> {
-    let mut rx = cg_indexer::spawn_watcher(std::path::Path::new(&repo.path), std::time::Duration::from_secs(2))?;
+    let mut rx = cg_indexer::spawn_watcher(
+        std::path::Path::new(&repo.path),
+        std::time::Duration::from_secs(2),
+    )?;
     println!("watching {} (ctrl-c to stop)", repo.path);
     loop {
-        let mut batch = vec![rx.recv().await.ok_or_else(|| anyhow!("watcher stopped"))?];
-        while let Ok(p) = rx.try_recv() {
-            batch.push(p);
+        let first = match rx.recv().await {
+            Some(cg_indexer::WatchEvent::Changed(p)) => p,
+            Some(cg_indexer::WatchEvent::Error(e)) => {
+                eprintln!("watch error: {e}");
+                continue;
+            }
+            None => return Err(anyhow!("watcher stopped")),
+        };
+        let mut batch = vec![first];
+        while let Ok(event) = rx.try_recv() {
+            match event {
+                cg_indexer::WatchEvent::Changed(p) => batch.push(p),
+                cg_indexer::WatchEvent::Error(e) => eprintln!("watch error: {e}"),
+            }
         }
         batch.dedup();
         let relevant: Vec<std::path::PathBuf> = batch
             .into_iter()
-            .filter(|p| cg_core::lang::lang_for_path(p).is_some())
+            .filter(|p| cg_indexer::is_watch_relevant(p))
             .collect();
         if relevant.is_empty() {
             continue;
         }
-        match cg_indexer::index_paths(&conn, &repo, &relevant, "watch").await {
-            Ok(o) => println!("re-indexed {} files (+{} symbols, +{} edges)", o.files_changed, o.symbols, o.edges),
+        let result = if cg_indexer::needs_repo_scan(&relevant) {
+            cg_indexer::index_repo(&conn, &repo, false, "watch", |_p| {}).await
+        } else {
+            cg_indexer::index_paths(&conn, &repo, &relevant, "watch", |_p| {}).await
+        };
+        match result {
+            Ok(o) => println!(
+                "re-indexed {} files (parsed {} symbols, {} edges)",
+                o.files_changed, o.symbols, o.edges
+            ),
             Err(e) => eprintln!("reindex failed: {e:#}"),
         }
     }

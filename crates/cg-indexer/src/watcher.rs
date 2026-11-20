@@ -1,10 +1,34 @@
-//! File watching with debounce; emits changed file paths on a tokio channel.
+//! File watching with debounce; emits changed paths and fatal errors on a tokio channel.
 
 use notify::{event::ModifyKind, EventKind, RecursiveMode};
 use notify_debouncer_full::{new_debouncer, DebounceEventResult};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use tokio::sync::mpsc;
+
+#[derive(Debug, Clone)]
+pub enum WatchEvent {
+    Changed(PathBuf),
+    Error(String),
+}
+
+/// True for events implying actual data change (create/remove/rename/write);
+/// false for pure reads or metadata-only updates (atime, chmod), which must
+/// not trigger re-parsing.
+/// Paths worth waking the indexer for: source files, plus directories or
+/// vanished paths (a delete/rename may remove many files without per-file events).
+pub fn is_watch_relevant(path: &Path) -> bool {
+    cg_core::lang::lang_for_path(path).is_some() || path.is_dir() || !path.exists()
+}
+
+/// A directory create/delete/rename can change many files with only one event
+/// (no per-file events), so the caller should run an incremental repo scan
+/// instead of indexing an exact path list.
+pub fn needs_repo_scan(paths: &[PathBuf]) -> bool {
+    paths
+        .iter()
+        .any(|p| p.is_dir() || (cg_core::lang::lang_for_path(p).is_none() && !p.exists()))
+}
 
 /// True for events implying actual data change (create/remove/rename/write);
 /// false for pure reads or metadata-only updates (atime, chmod), which must
@@ -16,9 +40,24 @@ fn is_data_change(kind: &EventKind) -> bool {
     )
 }
 
+fn send_error(tx: &mpsc::UnboundedSender<WatchEvent>, message: impl Into<String>) {
+    let _ = tx.send(WatchEvent::Error(message.into()));
+}
+
+fn format_errors(errors: &[notify::Error]) -> String {
+    errors
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Spawn a watcher over `root`. Every debounced change batch is flattened into
-/// individual paths sent to the returned receiver. Stops when the sender is dropped.
-pub fn spawn_watcher(root: &Path, debounce: Duration) -> anyhow::Result<mpsc::UnboundedReceiver<PathBuf>> {
+/// individual path events; setup/setup/stream failures are reported as errors.
+pub fn spawn_watcher(
+    root: &Path,
+    debounce: Duration,
+) -> anyhow::Result<mpsc::UnboundedReceiver<WatchEvent>> {
     let (tx, rx) = mpsc::unbounded_channel();
     let root = root.to_path_buf();
     std::thread::spawn(move || {
@@ -27,11 +66,13 @@ pub fn spawn_watcher(root: &Path, debounce: Duration) -> anyhow::Result<mpsc::Un
             Ok(d) => d,
             Err(e) => {
                 tracing::error!(error = %e, "watcher init failed");
+                send_error(&tx, format!("watcher init failed: {e}"));
                 return;
             }
         };
         if let Err(e) = debouncer.watch(&root, RecursiveMode::Recursive) {
             tracing::error!(error = %e, root = %root.display(), "watch failed");
+            send_error(&tx, format!("watch failed for {}: {e}", root.display()));
             return;
         }
         tracing::info!(root = %root.display(), "watching");
@@ -43,14 +84,46 @@ pub fn spawn_watcher(root: &Path, debounce: Duration) -> anyhow::Result<mpsc::Un
                             continue;
                         }
                         for path in ev.event.paths {
-                            let _ = tx.send(path);
+                            let _ = tx.send(WatchEvent::Changed(path));
                         }
                     }
                 }
-                Err(e) => tracing::warn!(error = ?e, "watch error"),
+                Err(errors) => {
+                    let message = format_errors(&errors);
+                    tracing::warn!(error = %message, "watch error");
+                    send_error(&tx, format!("watch stream error: {message}"));
+                }
             }
         }
+        send_error(&tx, "watcher stream closed");
         // debouncer dropped here: watcher stops
     });
     Ok(rx)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_watch_relevant, needs_repo_scan};
+    use std::path::Path;
+
+    #[test]
+    fn directory_events_trigger_a_repo_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir(&src).unwrap();
+        let file = dir.path().join("lib.rs");
+        std::fs::write(&file, "pub fn a() {}\n").unwrap();
+
+        assert!(is_watch_relevant(&src));
+        assert!(is_watch_relevant(&file));
+        assert!(is_watch_relevant(Path::new("/definitely/missing/lib.rs")));
+        let txt = dir.path().join("README.md");
+        std::fs::write(&txt, "docs\n").unwrap();
+        assert!(!is_watch_relevant(&txt));
+
+        assert!(needs_repo_scan(&[src.clone()]));
+        assert!(!needs_repo_scan(&[file]));
+        assert!(!needs_repo_scan(&[dir.path().join("gone.rs")]));
+        assert!(needs_repo_scan(&[dir.path().join("gone-dir")]));
+    }
 }
