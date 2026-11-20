@@ -56,7 +56,10 @@ impl Remote {
             Some(s) => list
                 .iter()
                 .find(|r| {
-                    r["id"].as_i64().map(|i| i.to_string() == s).unwrap_or(false)
+                    r["id"]
+                        .as_i64()
+                        .map(|i| i.to_string() == s)
+                        .unwrap_or(false)
                         || r["path"].as_str() == Some(s)
                         || r["name"].as_str() == Some(s)
                 })
@@ -68,8 +71,17 @@ impl Remote {
         }
     }
 
-    pub async fn add_repo(&self, path: &str, name: Option<&str>, git_url: Option<&str>) -> Result<Value> {
-        self.post("/api/repos", json!({ "path": path, "name": name, "git_url": git_url })).await
+    pub async fn add_repo(
+        &self,
+        path: &str,
+        name: Option<&str>,
+        git_url: Option<&str>,
+    ) -> Result<Value> {
+        self.post(
+            "/api/repos",
+            json!({ "path": path, "name": name, "git_url": git_url }),
+        )
+        .await
     }
 
     pub async fn list_repos(&self) -> Result<Value> {
@@ -86,16 +98,13 @@ impl Remote {
     }
 
     pub async fn index(&self, id: i64, full: bool) -> Result<Value> {
-        self.post(&format!("/api/repos/{id}/index"), json!({ "full": full })).await
+        self.post(&format!("/api/repos/{id}/index"), json!({ "full": full }))
+            .await
     }
 
     pub async fn analyze(&self, id: i64) -> Result<Value> {
-        self.post(&format!("/api/repos/{id}/analyze"), json!({})).await
-    }
-
-    #[allow(dead_code)]
-    pub async fn status(&self, id: i64) -> Result<Value> {
-        self.get(&format!("/api/repos/{id}/status")).await
+        self.post(&format!("/api/repos/{id}/analyze"), json!({}))
+            .await
     }
 
     pub async fn files(&self, id: i64) -> Result<Value> {
@@ -118,7 +127,8 @@ impl Remote {
     }
 
     pub async fn file(&self, id: i64, rel: &str) -> Result<Value> {
-        self.get(&format!("/api/repos/{id}/file?path={}", urlencode(rel))).await
+        self.get(&format!("/api/repos/{id}/file?path={}", urlencode(rel)))
+            .await
     }
 }
 

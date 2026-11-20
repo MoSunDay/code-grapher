@@ -47,19 +47,22 @@ pub fn default_web_dist() -> Option<std::path::PathBuf> {
 /// Feature review storage root; env override or platform data home, with a
 /// local fallback for environments lacking HOME.
 pub fn default_feature_root() -> std::path::PathBuf {
-    cg_feature::resolve_feature_root(None).unwrap_or_else(|_| std::path::PathBuf::from("./feature-data"))
+    cg_feature::resolve_feature_root(None)
+        .unwrap_or_else(|_| std::path::PathBuf::from("./feature-data"))
 }
 
 /// Clones root for URL-registered repos; `CG_REPOS_DIR` override, else `./repos`.
 pub fn default_clones_root() -> std::path::PathBuf {
-    std::env::var("CG_REPOS_DIR").map(std::path::PathBuf::from).unwrap_or_else(|_| "./repos".into())
+    std::env::var("CG_REPOS_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| "./repos".into())
 }
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Connection,
     pub events: broadcast::Sender<String>,
-    /// Repos currently being indexed (prevents concurrent double-runs).
+    /// Repos currently being indexed. Shared by API and watcher so runs are serial per repo.
     pub indexing: std::sync::Arc<Mutex<HashSet<i64>>>,
     /// Repos currently being cloned from a registered URL.
     pub cloning: std::sync::Arc<Mutex<HashSet<i64>>>,

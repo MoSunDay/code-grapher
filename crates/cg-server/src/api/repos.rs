@@ -1,5 +1,6 @@
 //! Repo endpoints: CRUD, URL/local registration, index + analyze triggers, status.
 
+use crate::index_jobs::{spawn_index_job, IndexJob};
 use crate::state::AppState;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -8,8 +9,8 @@ use cg_core::model::Repo;
 use cg_db::{repos, runs};
 use cg_feature::{canonical_git_url, feature_repo_id};
 use serde::Deserialize;
-use std::path::PathBuf;
 use serde_json::{json, Value};
+use std::path::PathBuf;
 
 type ApiError = (StatusCode, Json<Value>);
 
@@ -58,9 +59,18 @@ async fn register_by_path(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
     state.emit(&json!({"type": "repo_added", "repo_id": repo.id}));
-    spawn_index_run(state.clone(), repo.clone(), true);
+    spawn_index_job(
+        state.clone(),
+        repo.clone(),
+        IndexJob::Repo {
+            full: true,
+            trigger: "api".into(),
+        },
+    );
     let feature_repo_id = feature_repo_id(repo.git_url.as_deref());
-    Ok(Json(json!({ "repo": repo, "feature_repo_id": feature_repo_id })))
+    Ok(Json(
+        json!({ "repo": repo, "feature_repo_id": feature_repo_id }),
+    ))
 }
 
 /// Register by URL: insert a `cloning` row, respond immediately, then clone +
@@ -111,7 +121,9 @@ async fn register_by_url(
     spawn_clone_task(state.clone(), repo.clone(), url.to_string(), dir);
 
     let feature_repo_id = feature_repo_id(repo.git_url.as_deref());
-    Ok(Json(json!({ "repo": repo, "feature_repo_id": feature_repo_id })))
+    Ok(Json(
+        json!({ "repo": repo, "feature_repo_id": feature_repo_id }),
+    ))
 }
 
 /// 409 payload for an already-registered canonical URL (`cloning`/`ready`).
@@ -135,7 +147,10 @@ async fn retry_failed_clone(
     {
         let guard = state.cloning.lock().unwrap();
         if guard.contains(&existing.id) {
-            return Err(err(StatusCode::CONFLICT, "该仓库克隆任务进行中，请稍后重试"));
+            return Err(err(
+                StatusCode::CONFLICT,
+                "该仓库克隆任务进行中，请稍后重试",
+            ));
         }
     }
     repos::set_status(&state.db, existing.id, cg_core::repo_status::CLONING, None)
@@ -148,7 +163,9 @@ async fn retry_failed_clone(
     };
     spawn_clone_task(state, repo.clone(), url.to_string(), dir);
     let feature_repo_id = feature_repo_id(repo.git_url.as_deref());
-    Ok(Json(json!({ "repo": repo, "feature_repo_id": feature_repo_id, "retried": true })))
+    Ok(Json(
+        json!({ "repo": repo, "feature_repo_id": feature_repo_id, "retried": true }),
+    ))
 }
 
 /// Spawn the background clone task: the `cloning` guard set is claimed
@@ -168,19 +185,33 @@ fn spawn_clone_task(state: AppState, repo: Repo, raw_url: String, dir: PathBuf) 
         match outcome {
             Ok(()) => {
                 tracing::info!(repo_id = repo.id, dir = %dir.display(), "clone finished");
-                if let Err(e) = repos::set_status(&state.db, repo.id, cg_core::repo_status::READY, None).await {
+                if let Err(e) =
+                    repos::set_status(&state.db, repo.id, cg_core::repo_status::READY, None).await
+                {
                     tracing::error!(repo_id = repo.id, error = %e, "set ready failed");
                 }
                 state.emit(&json!({"type": "clone_done", "repo_id": repo.id}));
+                // Claim the index lock before starting the watcher: the initial
+                // full scan must not race a watch-triggered incremental run.
+                spawn_index_job(
+                    state.clone(),
+                    repo.clone(),
+                    IndexJob::Repo {
+                        full: true,
+                        trigger: "api".into(),
+                    },
+                );
                 if state.cfg.watch {
                     crate::spawn_repo_watcher(state.clone(), repo.clone());
                 }
-                spawn_index_run(state.clone(), repo.clone(), true);
             }
             Err(e) => {
                 let msg = format!("{e:#}");
                 tracing::warn!(repo_id = repo.id, url = %raw_url, error = %msg, "clone failed");
-                if let Err(se) = repos::set_status(&state.db, repo.id, cg_core::repo_status::FAILED, Some(&msg)).await {
+                if let Err(se) =
+                    repos::set_status(&state.db, repo.id, cg_core::repo_status::FAILED, Some(&msg))
+                        .await
+                {
                     tracing::error!(repo_id = repo.id, error = %se, "set failed status errored");
                 }
                 state.emit(&json!({"type": "clone_failed", "repo_id": repo.id, "error": msg}));
@@ -189,43 +220,10 @@ fn spawn_clone_task(state: AppState, repo: Repo, raw_url: String, dir: PathBuf) 
     });
 }
 
-/// Spawn a background full/incremental index run; a no-op when one is already
-/// running for the repo. Progress flows over WS (`index_progress`/`index_done`).
-fn spawn_index_run(state: AppState, repo: Repo, full: bool) -> bool {
-    {
-        let mut guard = state.indexing.lock().unwrap();
-        if !guard.insert(repo.id) {
-            return false;
-        }
-    }
-    let id = repo.id;
-    tokio::spawn(async move {
-        let progress = |p: cg_indexer::IndexProgress| {
-            state.emit(&json!({
-                "type": "index_progress", "repo_id": id, "run_id": Value::Null,
-                "done": p.done, "total": p.total, "phase": "parsing", "current_file": p.current_file,
-            }));
-        };
-        let outcome = cg_indexer::index_repo(&state.db, &repo, full, "api", progress).await;
-        state.indexing.lock().unwrap().remove(&id);
-        match outcome {
-            Ok(o) => {
-                state.emit(&json!({
-                    "type": "index_done", "repo_id": id, "run_id": o.run_id,
-                    "stats": { "files_changed": o.files_changed, "symbols": o.symbols,
-                               "edges": o.edges, "duration_ms": o.duration_ms },
-                }));
-            }
-            Err(e) => {
-                tracing::error!(repo_id = id, error = %e, "index run failed");
-                state.emit(&json!({"type": "index_failed", "repo_id": id, "error": format!("{e:#}") }));
-            }
-        }
-    });
-    true
-}
-
-pub async fn remove(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<Value>, ApiError> {
+pub async fn remove(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, ApiError> {
     let repo = repos::get(&state.db, id)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?
@@ -259,10 +257,19 @@ pub async fn trigger_index(
     if repo.status == cg_core::repo_status::CLONING {
         return Err(StatusCode::CONFLICT);
     }
-    if spawn_index_run(state, repo, full) {
+    if spawn_index_job(
+        state,
+        repo,
+        IndexJob::Repo {
+            full,
+            trigger: "api".into(),
+        },
+    ) {
         Ok(Json(json!({ "ok": true })))
     } else {
-        Ok(Json(json!({ "run_id": Value::Null, "already_running": true })))
+        Ok(Json(
+            json!({ "run_id": Value::Null, "already_running": true }),
+        ))
     }
 }
 
@@ -278,7 +285,10 @@ pub async fn trigger_analyze(
     Ok(Json(json!({ "enqueued": n })))
 }
 
-pub async fn status(State(state): State<AppState>, Path(id): Path<i64>) -> Result<Json<Value>, StatusCode> {
+pub async fn status(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<Value>, StatusCode> {
     let repo = repos::get(&state.db, id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
@@ -310,5 +320,9 @@ fn path_tail(path: &str) -> String {
 
 /// Last path segment of a canonical `host/path` URL, e.g. `org/repo` -> `repo`.
 fn url_tail(canonical: &str) -> String {
-    canonical.rsplit('/').next().unwrap_or(canonical).to_string()
+    canonical
+        .rsplit('/')
+        .next()
+        .unwrap_or(canonical)
+        .to_string()
 }
