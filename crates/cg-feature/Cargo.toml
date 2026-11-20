@@ -8,7 +8,6 @@ description = "Git-backed feature review storage keyed by canonical git URL iden
 [dependencies]
 anyhow.workspace = true
 serde.workspace = true
-serde_json.workspace = true
 sha2.workspace = true
 libc.workspace = true
 clap.workspace = true

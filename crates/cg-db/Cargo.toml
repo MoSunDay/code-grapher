@@ -9,10 +9,8 @@ description = "Turso/libSQL storage layer for code-grapher"
 cg-core.workspace = true
 cg-feature.workspace = true
 anyhow.workspace = true
-thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
 libsql.workspace = true
 tracing.workspace = true
 

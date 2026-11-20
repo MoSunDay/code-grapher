@@ -424,7 +424,6 @@ dependencies = [
  "cg-core",
  "cg-db",
  "cg-indexer",
- "futures",
  "libsql",
  "reqwest",
  "serde",
@@ -447,9 +446,7 @@ dependencies = [
  "clap",
  "libsql",
  "reqwest",
- "serde",
  "serde_json",
- "tempfile",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -461,7 +458,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "serde",
- "thiserror 2.0.21",
  "tree-sitter",
  "tree-sitter-rust",
 ]
@@ -477,7 +473,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -490,7 +485,6 @@ dependencies = [
  "clap",
  "libc",
  "serde",
- "serde_json",
  "sha2",
  "tempfile",
 ]
@@ -529,7 +523,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
- "tokio-stream",
  "tower 0.5.3",
  "tower-http 0.7.1",
  "tracing",
@@ -3032,7 +3025,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]

@@ -23,7 +23,6 @@ cg-analyzer = { path = "crates/cg-analyzer" }
 cg-server = { path = "crates/cg-server" }
 cg-feature = { path = "crates/cg-feature" }
 anyhow = "1"
-thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "signal", "process"] }
@@ -41,7 +40,6 @@ sha2 = "0.10"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 futures = "0.3"
-tokio-stream = { version = "0.1", features = ["sync"] }
 tempfile = "3"
 libc = "0.2"
 
