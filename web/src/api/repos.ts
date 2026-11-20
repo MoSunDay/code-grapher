@@ -2,7 +2,7 @@ import type {
   AnalyzeResult,
   CreateRepoInput,
   Id,
-  IndexRunRef,
+  IndexTriggerResult,
   Repo,
   RepoList,
   RepoStatsPayload,
@@ -18,8 +18,8 @@ export async function createRepo(input: CreateRepoInput): Promise<Repo> {
   return res.data.repo
 }
 
-export async function triggerIndex(repoId: Id, full: boolean): Promise<IndexRunRef> {
-  return (await apiClient.post<IndexRunRef>(`/repos/${repoId}/index`, { full })).data
+export async function triggerIndex(repoId: Id, full: boolean): Promise<IndexTriggerResult> {
+  return (await apiClient.post<IndexTriggerResult>(`/repos/${repoId}/index`, { full })).data
 }
 
 export async function triggerAnalyze(repoId: Id): Promise<AnalyzeResult> {

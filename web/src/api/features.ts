@@ -1,6 +1,7 @@
 import { apiClient } from './client'
 import type {
   BlobContent,
+  ChangelogList,
   FeatureApproveResult,
   FeatureDiff,
   FeatureTree,
@@ -55,16 +56,6 @@ export async function approveMr(
       body,
     )
   ).data
-}
-
-export interface ChangelogEntry {
-  file: string
-  markdown: string
-}
-
-export interface ChangelogList {
-  repo_id: string
-  changelog: ChangelogEntry[]
 }
 
 export async function listChangelog(featureRepoId: string): Promise<ChangelogList> {

@@ -47,8 +47,10 @@ export interface RepoList {
 export type CreateRepoInput =
   | { url: string; name?: string }
   | { path: string; name?: string; git_url?: string }
-export interface IndexRunRef {
-  run_id: Id
+export interface IndexTriggerResult {
+  ok?: boolean
+  run_id?: Id | null
+  already_running?: boolean
 }
 export interface AnalyzeResult {
   enqueued: number
@@ -177,7 +179,7 @@ export interface UpdateConfigResult {
 export interface IndexProgressEvent {
   type: 'index_progress'
   repo_id: Id
-  run_id: Id
+  run_id: Id | null
   done: number
   total: number
   phase: string
@@ -186,7 +188,18 @@ export interface IndexDoneEvent {
   type: 'index_done'
   repo_id: Id
   run_id: Id
-  stats: { files_changed: number; symbols: number; edges: number; duration_ms: number }
+  stats: {
+    files_changed: number
+    /** 解析阶段产生的符号数（去重前） */
+    symbols: number
+    /** 解析阶段产生的边数（去重前） */
+    edges: number
+    /** 图内去重后的符号总数；缺省时前端回退到 symbols */
+    symbols_total?: number
+    /** 图内去重后的边总数；缺省时前端回退到 edges */
+    edges_total?: number
+    duration_ms: number
+  }
 }
 export interface LogEvent {
   type: 'log'
@@ -202,9 +215,16 @@ export interface CloneFailedEvent {
   repo_id: Id
   error: string
 }
+export interface IndexFailedEvent {
+  type: 'index_failed'
+  repo_id: Id
+  run_id?: Id | null
+  error: string
+}
 export type WsEvent =
   | IndexProgressEvent
   | IndexDoneEvent
+  | IndexFailedEvent
   | LogEvent
   | CloneDoneEvent
   | CloneFailedEvent

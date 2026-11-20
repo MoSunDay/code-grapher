@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { App, Button, Empty, Popconfirm, Space, Tabs, Typography } from 'antd'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { triggerAnalyze, triggerIndex } from '../api/repos'
+import type { Id } from '../api/types'
 import { QueryErrorAlert } from '../components/QueryErrorAlert'
 import { requireRepoId, useRepoStats } from '../hooks/queries'
 import { useRepo } from '../repo/use-repo'
@@ -17,8 +18,14 @@ export default function DashboardPage(): ReactNode {
   const { message } = App.useApp()
   const queryClient = useQueryClient()
   const [progress, setProgress] = useState<IndexProgressState | null>(null)
+  const activeRunId = useRef<Id | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const statsQuery = useRepoStats(repoId, progress !== null ? 2000 : false)
+
+  useEffect(() => {
+    activeRunId.current = null
+    setProgress(null)
+  }, [repoId])
 
   useWsEvent((event) => {
     if (event.type === 'log') {
@@ -37,14 +44,42 @@ export default function DashboardPage(): ReactNode {
     const forCurrent = repoId !== null && String(event.repo_id) === String(repoId)
     if (!forCurrent) return
     if (event.type === 'index_progress') {
-      setProgress({ done: event.done, total: event.total, phase: event.phase })
+      if (event.run_id !== null) activeRunId.current = event.run_id
+      setProgress({
+        runId: event.run_id,
+        done: event.done,
+        total: event.total,
+        phase: event.phase,
+      })
       return
     }
     if (event.type === 'index_done') {
-      setProgress(null)
-      message.success(
-        `索引完成：${event.stats.files_changed} 个文件 / ${event.stats.symbols} 个符号 / ${event.stats.edges} 条边`,
-      )
+      const matches =
+        activeRunId.current !== null &&
+        String(activeRunId.current) === String(event.run_id)
+      if (matches) {
+        activeRunId.current = null
+        setProgress(null)
+        const { files_changed, symbols, edges, symbols_total, edges_total } = event.stats
+        message.success(
+          `索引完成：本次解析 ${files_changed} 文件 / ${symbols} 符号 / ${edges} 边；图内共 ${symbols_total ?? symbols} 符号 / ${edges_total ?? edges} 边`,
+        )
+      }
+      void queryClient.invalidateQueries({ queryKey: ['repos'] })
+      return
+    }
+    if (event.type === 'index_failed') {
+      const failedRunId = event.run_id ?? null
+      if (failedRunId === null) {
+        message.warning(`索引监听失败：${event.error}`)
+      } else if (
+        activeRunId.current !== null &&
+        String(activeRunId.current) === String(failedRunId)
+      ) {
+        activeRunId.current = null
+        setProgress(null)
+        message.error(`索引失败：${event.error}`)
+      }
       void queryClient.invalidateQueries({ queryKey: ['repos'] })
       return
     }
@@ -52,7 +87,13 @@ export default function DashboardPage(): ReactNode {
 
   const indexMutation = useMutation({
     mutationFn: (full: boolean) => triggerIndex(requireRepoId(repoId), full),
-    onSuccess: () => message.success('索引任务已触发'),
+    onSuccess: (result) => {
+      if (result.already_running === true) {
+        message.warning('已有索引在运行，请等待当前任务完成')
+      } else {
+        message.success('索引任务已触发')
+      }
+    },
   })
   const analyzeMutation = useMutation({
     mutationFn: () => triggerAnalyze(requireRepoId(repoId)),

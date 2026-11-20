@@ -52,7 +52,8 @@ function AddRepoModal({ open, onClose }: { open: boolean; onClose: () => void })
       onCancel={onClose}
       confirmLoading={mutation.isPending}
       onOk={() => form.submit()}
-      destroyOnClose
+      destroyOnHidden
+      afterClose={() => form.resetFields()}
     >
       <Form form={form} layout="vertical" onFinish={onFinish}>
         <Form.Item

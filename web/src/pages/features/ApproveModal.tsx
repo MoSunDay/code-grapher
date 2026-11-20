@@ -2,6 +2,7 @@ import { App, Form, Input, Modal } from 'antd'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { approveMr } from '../../api/features'
+import { QueryErrorAlert } from '../../components/QueryErrorAlert'
 
 /** Human approve = merge mr/<name> into main; reviewer is the merge author. */
 export function ApproveModal({
@@ -31,7 +32,14 @@ export function ApproveModal({
     onSuccess: (result) => {
       message.success(`已合入 main：${result.merge_commit.slice(0, 10)}`)
       form.resetFields()
-      for (const key of ['feature-mrs', 'feature-tree', 'feature-blob', 'feature-changelog']) {
+      for (const key of [
+        'feature-mrs',
+        'feature-tree',
+        'feature-blob',
+        'feature-changelog',
+        'feature-mr-commits',
+        'feature-mr-diff',
+      ]) {
         queryClient.invalidateQueries({ queryKey: [key, featureRepoId] })
       }
       onClose()
@@ -43,10 +51,7 @@ export function ApproveModal({
       title={`Approve MR「${name ?? ''}」`}
       open={open && name !== null}
       confirmLoading={approve.isPending}
-      onOk={async () => {
-        const values = await form.validateFields()
-        approve.mutate(values)
-      }}
+      onOk={() => form.submit()}
       onCancel={() => {
         form.resetFields()
         onClose()
@@ -54,7 +59,8 @@ export function ApproveModal({
       okText="合入 main"
       okButtonProps={{ danger: true }}
     >
-      <Form form={form} layout="vertical" requiredMark>
+      <QueryErrorAlert error={approve.error} context="合入 main" />
+      <Form form={form} layout="vertical" requiredMark onFinish={(values) => approve.mutate(values)}>
         <Form.Item
           name="reviewer"
           label="Reviewer（将作为 merge commit 作者）"

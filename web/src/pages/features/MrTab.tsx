@@ -1,11 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { Button, Descriptions, Space, Table, Tag, Typography } from 'antd'
+import { Button, Collapse, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import { useState, type ReactNode } from 'react'
-import { getMrCommits, getMrDiff, listMrs } from '../../api/features'
+import { getBlob, getMrCommits, getMrDiff, listMrs } from '../../api/features'
 import type { MrSummary } from '../../api/types'
 import { QueryErrorAlert } from '../../components/QueryErrorAlert'
 import { fmtTime as formatTime } from '../../lib/format'
 import { ApproveModal } from './ApproveModal'
+import { ChangelogPanel } from './ChangelogPanel'
+import { MarkdownView } from './MarkdownView'
 
 /** MR 记录 tab：分支列表 + 状态 + reviewer + 展开看 commits 与 diff。 */
 export function MrTab({
@@ -82,6 +84,7 @@ export function MrTab({
           },
         ]}
       />
+      <ChangelogPanel featureRepoId={featureRepoId} />
       <ApproveModal
         featureRepoId={featureRepoId}
         name={approveTarget?.name ?? null}
@@ -105,32 +108,101 @@ function MrExpand({ featureRepoId, mr }: { featureRepoId: string; mr: MrSummary 
   return (
     <Space direction="vertical" size={8} style={{ width: '100%' }}>
       {mr.changelog !== null && (
-        <Descriptions size="small" column={1} bordered>
-          <Descriptions.Item label="changelog">{mr.changelog}</Descriptions.Item>
-        </Descriptions>
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'changelog',
+              label: (
+                <Tooltip title={mr.changelog}>
+                  <Typography.Text style={{ fontSize: 12 }}>
+                    changelog · {baseName(mr.changelog)}
+                  </Typography.Text>
+                </Tooltip>
+              ),
+              children: <ChangelogBlob featureRepoId={featureRepoId} path={mr.changelog} />,
+            },
+          ]}
+        />
       )}
+      <QueryErrorAlert error={commits.error} context="加载 MR commits" />
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        分支 commits（{commits.data?.commits.length ?? '…'}）
+        分支 commits（{pendingLabel(commits.data?.commits.length, commits.isPending)}）
       </Typography.Text>
+      {commits.isPending && (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          加载 commits…
+        </Typography.Text>
+      )}
       {(commits.data?.commits ?? []).map((commit) => (
         <Typography.Text key={commit.hash} style={{ fontSize: 12 }} code>
           {commit.hash.slice(0, 8)} {commit.author} {formatTime(commit.timestamp)} {commit.subject}
         </Typography.Text>
       ))}
+      <QueryErrorAlert error={diff.error} context="加载 MR diff" />
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
         diff（main...mr/{mr.name}）
       </Typography.Text>
-      <pre
-        style={{
-          margin: 0,
-          maxHeight: 260,
-          overflow: 'auto',
-          fontSize: 12,
-          whiteSpace: 'pre-wrap',
-        }}
-      >
-        {diff.data?.diff ?? '…'}
-      </pre>
+      {diff.isPending ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          加载 diff…
+        </Typography.Text>
+      ) : (
+        <pre
+          style={{
+            margin: 0,
+            maxHeight: 260,
+            overflow: 'auto',
+            fontSize: 12,
+            whiteSpace: 'pre-wrap',
+          }}
+        >
+          {diff.data?.diff ?? '（无 diff）'}
+        </pre>
+      )}
     </Space>
   )
+}
+
+function ChangelogBlob({
+  featureRepoId,
+  path,
+}: {
+  featureRepoId: string
+  path: string | null
+}): ReactNode {
+  const blob = useQuery({
+    queryKey: ['feature-blob', featureRepoId, null, path],
+    queryFn: () => getBlob(featureRepoId, path ?? ''),
+    enabled: path !== null,
+  })
+  if (blob.isPending) {
+    return (
+      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+        加载 changelog…
+      </Typography.Text>
+    )
+  }
+  return (
+    <Space direction="vertical" size={8} style={{ width: '100%' }}>
+      <QueryErrorAlert error={blob.error} context="读取 changelog" />
+      {blob.data === undefined ? (
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          暂无 changelog 内容
+        </Typography.Text>
+      ) : (
+        <MarkdownView markdown={blob.data.content} />
+      )}
+    </Space>
+  )
+}
+
+function baseName(path: string): string {
+  const slash = path.lastIndexOf('/')
+  return slash === -1 ? path : path.slice(slash + 1)
+}
+
+function pendingLabel(count: number | undefined, pending: boolean): number | string {
+  if (count !== undefined) return count
+  return pending ? '…' : '-'
 }

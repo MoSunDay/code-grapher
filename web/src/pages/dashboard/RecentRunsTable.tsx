@@ -1,4 +1,4 @@
-import { Badge, Table } from 'antd'
+import { Badge, Table, Tooltip } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { ReactNode } from 'react'
 import type { IndexRun } from '../../api/types'
@@ -12,6 +12,14 @@ const STATUS_META: Record<
   done: { badge: 'success', text: '完成' },
   failed: { badge: 'error', text: '失败' },
 }
+
+const PARSE_COUNT_HINT = '解析阶段的计数之和（去重前）；图内去重后的总数见「概览」统计卡片'
+
+const parseCountTitle = (text: string): ReactNode => (
+  <Tooltip title={PARSE_COUNT_HINT}>
+    <span>{text}</span>
+  </Tooltip>
+)
 
 export function RecentRunsTable({ runs }: { runs: IndexRun[] }): ReactNode {
   const columns: ColumnsType<IndexRun> = [
@@ -40,14 +48,14 @@ export function RecentRunsTable({ runs }: { runs: IndexRun[] }): ReactNode {
       render: (v?: number) => fmtNumber(v),
     },
     {
-      title: '符号',
+      title: parseCountTitle('解析符号'),
       dataIndex: 'symbols',
       width: 100,
       align: 'right',
       render: (v?: number) => fmtNumber(v),
     },
     {
-      title: '边',
+      title: parseCountTitle('解析边'),
       dataIndex: 'edges',
       width: 100,
       align: 'right',

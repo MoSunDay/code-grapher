@@ -27,7 +27,7 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
       const runId = asId(raw.run_id)
       const done = asNum(raw.done)
       const total = asNum(raw.total)
-      if (repoId === null || runId === null || done === null || total === null) return null
+      if (repoId === null || done === null || total === null) return null
       return {
         type: 'index_progress',
         repo_id: repoId,
@@ -42,14 +42,18 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
       const runId = asId(raw.run_id)
       const stats = isRecord(raw.stats) ? raw.stats : null
       if (repoId === null || runId === null || stats === null) return null
+      const symbols = asNum(stats.symbols) ?? 0
+      const edges = asNum(stats.edges) ?? 0
       return {
         type: 'index_done',
         repo_id: repoId,
         run_id: runId,
         stats: {
           files_changed: asNum(stats.files_changed) ?? 0,
-          symbols: asNum(stats.symbols) ?? 0,
-          edges: asNum(stats.edges) ?? 0,
+          symbols,
+          edges,
+          symbols_total: asNum(stats.symbols_total) ?? symbols,
+          edges_total: asNum(stats.edges_total) ?? edges,
           duration_ms: asNum(stats.duration_ms) ?? 0,
         },
       }
@@ -69,6 +73,13 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
       const error = asStr(raw.error)
       if (repoId === null || error === '') return null
       return { type: 'clone_failed', repo_id: repoId, error }
+    }
+    case 'index_failed': {
+      const repoId = asId(raw.repo_id)
+      const runId = asId(raw.run_id)
+      const error = asStr(raw.error)
+      if (repoId === null || error === '') return null
+      return { type: 'index_failed', repo_id: repoId, run_id: runId, error }
     }
     default:
       return null
