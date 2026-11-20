@@ -18,7 +18,8 @@
 - **克隆超时**：`CG_CLONE_TIMEOUT` 环境变量（秒，默认 `1800`，`0` 或非法值 = 不限）；超时置 `failed`（error 带原因）并清理半克隆目录
 - **单实例假设（Repos）**：多实例共享同一 DB 时，B 实例启动会把 A 实例进行中的 `cloning` 行误置 `failed`（与 Features 段"每分区单写者"声明一致，生产请保持 cg-server 单实例）
 - `DELETE /api/repos/{id}` → `{ok:true}`（`cloning` 中返回 409；不存在返回 404；本期不删除 clones_root 下的克隆目录）
-- `POST /api/repos/{id}/index` body `{full?:bool}` → `{ok:true}`（或 `{run_id:null,already_running:true}`）；`status=cloning` 时返回 409；进度走 WS
+- `POST /api/repos/{id}/index` body `{full?:bool}` → `{ok:true}`（已有索引在跑时为 `{run_id:null,already_running:true}`，此处 `null` 仅表示未新建 run）；`status=cloning` 时返回 409；进度走 WS
+- **索引单飞**：同一仓库同一时刻只允许一个索引任务（API 与 watcher 共享 per-repo 锁）。API 冲突时直接返回 `already_running`；watcher 事件不丢弃，排队等当前 run 结束后以 `trigger=watch` 执行，保证变更不丢、图谱不并发写
 - `POST /api/repos/{id}/analyze` → `{enqueued:N}`（为全部函数入队 hidden_calls 任务）
 - `GET /api/repos/{id}` → `{repo, last_run, stats, feature_repo_id}`
 - Repo 响应均含计算字段 `feature_repo_id = sha256(canonical(git_url))`；`git_url` 缺失或非法时为 `null`（前端据此提示“该仓库未配置 Git URL，仓库理解不可用”并引导补填 Git URL 或改选 URL 注册的仓库）
@@ -53,6 +54,8 @@
 
 ## Stats（Dashboard）
 - `GET /api/repos/{id}/stats` → `{totals:{files,symbols,edges,functions}, symbols_by_kind:{...}, edges_by_kind:{...}, edges_by_source:{ast,llm}, task_status:{pending,running,done,failed}, recent_runs:[IndexRun]}`
+- `totals` 是当前图谱**去重后**的计数（直接来自 files/symbols/call_edges 表）；Dashboard 顶部统计卡展示此口径
+- `recent_runs` 为最近 10 次索引（新到旧）：`symbols`/`edges` 是该次**解析阶段计数**（各文件解析结果累加、落库去重前），`files_changed` 为本次变更文件数；Recent Runs 表格展示此口径，不要与 `totals` 卡混淆
 
 ## Config（Settings 页）
 - `GET /api/config` → `{db:{mode:"local"|"remote"}, opencode:{url_set:bool, concurrency:N, paused:bool}, version}`（绝不回显密钥）
@@ -62,9 +65,10 @@
 - `GET /ws/events`：JSON 文本帧
   - `{type:"repo_added", repo_id}`
   - `{type:"clone_done", repo_id}` / `{type:"clone_failed", repo_id, error}`
-  - `{type:"index_progress", repo_id, run_id, done, total, phase}`
-  - `{type:"index_done", repo_id, run_id, stats:{files_changed,symbols,edges,duration_ms}}`
-  - `{type:"index_failed", repo_id, error}`
+  - `{type:"index_progress", repo_id, run_id, done, total, phase, current_file}`：`run_id` 为本次 index run 的真实 id（`index_runs.id`）；服务端新版本始终非 null，仅旧版服务端可能为 null（前端保留兼容）。`total` 是本次**待解析的变更文件数**（不是全仓库扫描数）；解析开始前先发一帧 `done=0,total=0`（前端显示“准备中”），末帧满足 `done==total`；`current_file` 为正在解析的文件（完成时为空串）
+  - `{type:"index_done", repo_id, run_id, stats:{files_changed,symbols,edges,symbols_total,edges_total,duration_ms}}`：`symbols`/`edges` 是本次**解析阶段计数**（落库去重前）；`symbols_total`/`edges_total` 是完成时图谱内**去重后的当前总数**（旧服务端缺省时前端回退为 symbols/edges；前端文案区分“本次解析”与“图内共”）；watch 触发的 run 同样携带这些字段
+  - `{type:"index_failed", repo_id, run_id, error}`：索引任务失败，`error` 为格式化错误链；`run_id` 为失败的那次 run，若失败发生在创建 run 之前（如 watcher 初始化失败）则为 null；本次不会再发 `index_done`，前端应停止进度并提示可重试（再次 `POST /api/repos/{id}/index`）；失败前已写入的解析结果不回滚
+  - `{type:"config_updated", analyze_concurrency, paused}`：`PUT /api/config` 成功后广播；`paused` 等价于 `analyze_concurrency==0`（暂停消费 pending 任务，running 任务自然跑完）
   - `{type:"analyze_enqueued", repo_id, count}`
   - `{type:"log", level, message}`
 

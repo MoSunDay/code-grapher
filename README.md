@@ -52,8 +52,9 @@ code-grapher serve --port 7800
 
 ## 调用边模型
 
-- AST 边（`source=ast`）：direct_fn / dynamic_method / macro / callback-arg / fn_ptr；名字唯一可解析的自动绑定 `callee_id`
-- LLM 边（`source=llm`）：LLM 提出的隐藏调用；通过唯一名校验直接绑定落库（带 evidence 与置信度），无前端任务/人审界面
+- AST 边（`source=ast`）：`direct_fn / dynamic_method / callback / macro`；名字唯一可解析的自动绑定 `callee_id`
+- `fn_ptr` 不计入 AST 边，由 LLM 补齐（`source=llm`）
+- LLM 边（`source=llm`）：隐藏调用与 `fn_ptr`；通过唯一名校验直接绑定落库（带 evidence 与置信度），无前端任务/人审界面
 
 ## 契约文档
 
