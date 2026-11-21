@@ -183,6 +183,8 @@ export interface IndexProgressEvent {
   done: number
   total: number
   phase: string
+  /** 正在解析的文件（相对路径）；准备/完成时为空串 */
+  current_file: string
 }
 export interface IndexDoneEvent {
   type: 'index_done'
@@ -210,6 +212,10 @@ export interface CloneDoneEvent {
   type: 'clone_done'
   repo_id: Id
 }
+export interface RepoAddedEvent {
+  type: 'repo_added'
+  repo_id: Id
+}
 export interface CloneFailedEvent {
   type: 'clone_failed'
   repo_id: Id
@@ -221,6 +227,21 @@ export interface IndexFailedEvent {
   run_id?: Id | null
   error: string
 }
+export interface AnalyzeEnqueuedEvent {
+  type: 'analyze_enqueued'
+  repo_id: Id
+  count: number
+}
+export interface ConfigUpdatedEvent {
+  type: 'config_updated'
+  analyze_concurrency: number
+  paused: boolean
+}
+export interface LaggedEvent {
+  type: 'lagged'
+  /** WS broadcast 丢弃的消息数 */
+  n: number
+}
 export type WsEvent =
   | IndexProgressEvent
   | IndexDoneEvent
@@ -228,6 +249,10 @@ export type WsEvent =
   | LogEvent
   | CloneDoneEvent
   | CloneFailedEvent
+  | RepoAddedEvent
+  | AnalyzeEnqueuedEvent
+  | ConfigUpdatedEvent
+  | LaggedEvent
 
 export function toId(value: string): Id {
   const n = Number(value)

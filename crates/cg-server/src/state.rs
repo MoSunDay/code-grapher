@@ -66,6 +66,11 @@ pub struct AppState {
     pub indexing: std::sync::Arc<Mutex<HashSet<i64>>>,
     /// Repos currently being cloned from a registered URL.
     pub cloning: std::sync::Arc<Mutex<HashSet<i64>>>,
+    /// Per-repo watcher stop flags; setting one to `true` makes that watcher
+    /// thread exit and close its event channel.
+    pub watcher_stops: std::sync::Arc<
+        Mutex<std::collections::HashMap<i64, std::sync::Arc<std::sync::atomic::AtomicBool>>>,
+    >,
     pub cfg: ServerConfig,
     /// Runtime-adjustable analyzer concurrency (0 = paused).
     pub analyze_concurrency: std::sync::Arc<std::sync::atomic::AtomicUsize>,
@@ -79,6 +84,7 @@ impl AppState {
             events,
             indexing: std::sync::Arc::new(Mutex::new(HashSet::new())),
             cloning: std::sync::Arc::new(Mutex::new(HashSet::new())),
+            watcher_stops: std::sync::Arc::new(Mutex::new(std::collections::HashMap::new())),
             cfg,
             analyze_concurrency: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(
                 cg_analyzer::AnalyzerConfig::from_env().concurrency,

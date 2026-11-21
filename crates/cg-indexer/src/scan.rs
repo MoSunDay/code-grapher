@@ -1,5 +1,6 @@
 //! Repository scanning: collect indexable source files.
 
+use anyhow::Context;
 use cg_core::lang::{lang_for_path, Lang, SKIP_DIRS};
 use std::path::{Path, PathBuf};
 
@@ -15,6 +16,10 @@ pub struct ScannedFile {
 
 /// Recursively scan `root` for files the language registry can parse.
 /// Skips VCS/build/vendor directories.
+///
+/// Any filesystem error (unreadable root/subdirectory, unreadable entry or
+/// metadata) is propagated so callers can abort *before* sweeping files from
+/// the database; a partial scan must never look like a deletion.
 pub fn scan_repo(root: &Path) -> anyhow::Result<Vec<ScannedFile>> {
     if !root.is_dir() {
         anyhow::bail!("repository path is not a directory: {}", root.display());
@@ -26,14 +31,10 @@ pub fn scan_repo(root: &Path) -> anyhow::Result<Vec<ScannedFile>> {
 }
 
 fn walk(root: &Path, dir: &Path, out: &mut Vec<ScannedFile>) -> anyhow::Result<()> {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(e) => {
-            tracing::warn!(dir = %dir.display(), error = %e, "unreadable dir");
-            return Ok(());
-        }
-    };
-    for entry in entries.flatten() {
+    let entries =
+        std::fs::read_dir(dir).with_context(|| format!("read directory {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.with_context(|| format!("read directory entry in {}", dir.display()))?;
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
@@ -43,7 +44,9 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<ScannedFile>) -> anyhow::Result<(
             }
             walk(root, &path, out)?;
         } else if let Some(lang) = lang_for_path(&path) {
-            let meta = entry.metadata()?;
+            let meta = entry
+                .metadata()
+                .with_context(|| format!("read metadata of {}", path.display()))?;
             let rel_path = path
                 .strip_prefix(root)
                 .unwrap_or(&path)

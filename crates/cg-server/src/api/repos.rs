@@ -1,7 +1,8 @@
 //! Repo endpoints: CRUD, URL/local registration, index + analyze triggers, status.
 
-use crate::index_jobs::{spawn_index_job, IndexJob};
+use crate::index_jobs::{failed_event, spawn_index_job, IndexJob};
 use crate::state::AppState;
+use crate::stop_repo_watcher;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
@@ -16,6 +17,24 @@ type ApiError = (StatusCode, Json<Value>);
 
 fn err(status: StatusCode, msg: impl Into<String>) -> ApiError {
     (status, Json(json!({ "error": msg.into() })))
+}
+
+/// Poison-safe `AppState::cloning` lock: a panicked clone task must not wedge
+/// the registration endpoints. Callers must drop the guard before awaiting.
+fn lock_cloning(state: &AppState) -> std::sync::MutexGuard<'_, std::collections::HashSet<i64>> {
+    state
+        .cloning
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// True while an index run holds the repo's lock.
+fn is_indexing(state: &AppState, id: i64) -> bool {
+    state
+        .indexing
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .contains(&id)
 }
 
 pub async fn list(State(state): State<AppState>) -> Json<Value> {
@@ -59,7 +78,7 @@ async fn register_by_path(
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;
     state.emit(&json!({"type": "repo_added", "repo_id": repo.id}));
-    spawn_index_job(
+    let index_started = spawn_index_job(
         state.clone(),
         repo.clone(),
         IndexJob::Repo {
@@ -67,6 +86,14 @@ async fn register_by_path(
             trigger: "api".into(),
         },
     );
+    if !index_started {
+        // No run_id exists here, so do not emit a misleading index_failed event.
+        tracing::warn!(
+            repo_id = repo.id,
+            path = %repo.path,
+            "initial index not started: repo is already indexing"
+        );
+    }
     let feature_repo_id = feature_repo_id(repo.git_url.as_deref());
     Ok(Json(
         json!({ "repo": repo, "feature_repo_id": feature_repo_id }),
@@ -145,7 +172,7 @@ async fn retry_failed_clone(
     dir: PathBuf,
 ) -> Result<Json<Value>, ApiError> {
     {
-        let guard = state.cloning.lock().unwrap();
+        let guard = lock_cloning(&state);
         if guard.contains(&existing.id) {
             return Err(err(
                 StatusCode::CONFLICT,
@@ -173,7 +200,7 @@ async fn retry_failed_clone(
 /// then clone → `ready` + watcher + index, or → `failed` + error detail.
 fn spawn_clone_task(state: AppState, repo: Repo, raw_url: String, dir: PathBuf) {
     {
-        let mut guard = state.cloning.lock().unwrap();
+        let mut guard = lock_cloning(&state);
         if !guard.insert(repo.id) {
             return; // a clone task is already running for this repo
         }
@@ -181,7 +208,7 @@ fn spawn_clone_task(state: AppState, repo: Repo, raw_url: String, dir: PathBuf) 
     let id = repo.id;
     tokio::spawn(async move {
         let outcome = cg_indexer::run_clone(&raw_url, &dir).await;
-        state.cloning.lock().unwrap().remove(&id);
+        lock_cloning(&state).remove(&id);
         match outcome {
             Ok(()) => {
                 tracing::info!(repo_id = repo.id, dir = %dir.display(), "clone finished");
@@ -193,7 +220,7 @@ fn spawn_clone_task(state: AppState, repo: Repo, raw_url: String, dir: PathBuf) 
                 state.emit(&json!({"type": "clone_done", "repo_id": repo.id}));
                 // Claim the index lock before starting the watcher: the initial
                 // full scan must not race a watch-triggered incremental run.
-                spawn_index_job(
+                let index_started = spawn_index_job(
                     state.clone(),
                     repo.clone(),
                     IndexJob::Repo {
@@ -201,6 +228,13 @@ fn spawn_clone_task(state: AppState, repo: Repo, raw_url: String, dir: PathBuf) 
                         trigger: "api".into(),
                     },
                 );
+                if !index_started {
+                    const MSG: &str = "initial index not started: repo is already indexing";
+                    tracing::warn!(repo_id = repo.id, "{}", MSG);
+                    state.emit(&failed_event(repo.id, MSG, None));
+                }
+                // The watcher runs independently of the initial index, so start
+                // it anyway; watch events may queue changes for a later run.
                 if state.cfg.watch {
                     crate::spawn_repo_watcher(state.clone(), repo.clone());
                 }
@@ -231,6 +265,12 @@ pub async fn remove(
     if repo.status == cg_core::repo_status::CLONING {
         return Err(err(StatusCode::CONFLICT, "克隆进行中，稍后再删"));
     }
+    if is_indexing(&state, id) {
+        return Err(err(StatusCode::CONFLICT, "索引进行中，稍后再删"));
+    }
+    // Stop the watcher first so no new watch-triggered index runs are queued
+    // for a repo that is about to disappear.
+    stop_repo_watcher(&state, id);
     repos::delete(&state.db, id)
         .await
         .map_err(|e| err(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}")))?;

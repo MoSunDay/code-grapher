@@ -19,11 +19,14 @@ export default function DashboardPage(): ReactNode {
   const queryClient = useQueryClient()
   const [progress, setProgress] = useState<IndexProgressState | null>(null)
   const activeRunId = useRef<Id | null>(null)
+  /** 最近一次已结束（done/failed）的 run，用于阻止迟到帧把进度“复活” */
+  const finishedRunId = useRef<Id | null>(null)
   const [logs, setLogs] = useState<string[]>([])
   const statsQuery = useRepoStats(repoId, progress !== null ? 2000 : false)
 
   useEffect(() => {
     activeRunId.current = null
+    finishedRunId.current = null
     setProgress(null)
   }, [repoId])
 
@@ -41,12 +44,36 @@ export default function DashboardPage(): ReactNode {
       }
       return
     }
+    if (event.type === 'repo_added') {
+      void queryClient.invalidateQueries({ queryKey: ['repos'] })
+      return
+    }
+    if (event.type === 'lagged') {
+      setLogs((prev) => [...prev.slice(-49), `[warn] WS 消息积压，丢弃 ${event.n} 条`])
+      return
+    }
+    // 配置变更与批量入队暂不影响本页视图；显式忽略，避免落到 repo_id 分支。
+    if (event.type === 'config_updated' || event.type === 'analyze_enqueued') return
     const forCurrent = repoId !== null && String(event.repo_id) === String(repoId)
     if (!forCurrent) return
     if (event.type === 'index_progress') {
-      if (event.run_id !== null) activeRunId.current = event.run_id
+      const incomingRunId = event.run_id
+      if (incomingRunId !== null) {
+        const active = activeRunId.current
+        if (active !== null) {
+          // 过期 run 的迟到进度：直接丢弃
+          if (String(active) !== String(incomingRunId)) return
+        } else {
+          // 已结束的 run 不再复活（done 帧后仍可能有排队帧）
+          if (finishedRunId.current !== null && String(finishedRunId.current) === String(incomingRunId)) {
+            return
+          }
+          activeRunId.current = incomingRunId
+        }
+      }
+      // run_id 为 null 仅来自旧版服务端，保留兼容，直接接受。
       setProgress({
-        runId: event.run_id,
+        runId: incomingRunId,
         done: event.done,
         total: event.total,
         phase: event.phase,
@@ -59,6 +86,7 @@ export default function DashboardPage(): ReactNode {
         String(activeRunId.current) === String(event.run_id)
       if (matches) {
         activeRunId.current = null
+        finishedRunId.current = event.run_id
         setProgress(null)
         const { files_changed, symbols, edges, symbols_total, edges_total } = event.stats
         message.success(
@@ -77,6 +105,7 @@ export default function DashboardPage(): ReactNode {
         String(activeRunId.current) === String(failedRunId)
       ) {
         activeRunId.current = null
+        finishedRunId.current = failedRunId
         setProgress(null)
         message.error(`索引失败：${event.error}`)
       }

@@ -123,7 +123,7 @@ pub async fn run_status(conn: &Connection, repo: &Repo) -> Result<serde_json::Va
 
 /// Local watch loop (no HTTP server): re-index on file changes.
 pub async fn watch(conn: Connection, repo: Repo) -> Result<()> {
-    let mut rx = cg_indexer::spawn_watcher(
+    let (mut rx, _stop) = cg_indexer::spawn_watcher(
         std::path::Path::new(&repo.path),
         std::time::Duration::from_secs(2),
     )?;

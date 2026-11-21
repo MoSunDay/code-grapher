@@ -104,7 +104,9 @@ async fn finish_run(
             )
             .await
             {
-                mark_failed(conn, run_id, duration_ms).await;
+                // Success-path bookkeeping failed: surface the error without a
+                // second `runs::finish` call (which would overwrite the row).
+                tracing::error!(run_id, error = %e, "failed to mark index run ok");
                 return Err(e);
             }
             Ok(outcome)
@@ -216,17 +218,15 @@ async fn index_paths_inner(
     progress: &mut (impl FnMut(IndexProgress) + Send),
 ) -> anyhow::Result<IndexOutcome> {
     let root = std::path::Path::new(&repo.path);
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    // Scan errors propagate here (via `?`) so `sweep_missing` never runs on a
+    // partial/failed scan.
     let all = scan_repo(root)?;
     let keep: serde_json::Value =
         serde_json::json!(all.iter().map(|f| f.rel_path.clone()).collect::<Vec<_>>());
     let wanted: Vec<String> = paths
         .iter()
-        .map(|p| {
-            p.strip_prefix(root)
-                .unwrap_or(p)
-                .to_string_lossy()
-                .replace('\\', "/")
-        })
+        .map(|p| event_rel_path(root, &canonical_root, p))
         .collect();
     let selected: Vec<ScannedFile> = all
         .into_iter()
@@ -250,6 +250,29 @@ async fn index_paths_inner(
     })
 }
 
+/// Map a watcher event path onto a repo-relative, `/`-separated path.
+///
+/// Tries the raw path against the configured root first (covers relative repo
+/// roots), then the canonicalized path against the canonical root (covers
+/// symlinked/spelled-differently roots). Deleted paths cannot be
+/// canonicalized, so the raw event path remains the fallback.
+fn event_rel_path(
+    root: &std::path::Path,
+    canonical_root: &std::path::Path,
+    path: &std::path::Path,
+) -> String {
+    let canonical = path.canonicalize().ok();
+    let best = canonical.as_deref().unwrap_or(path);
+    let rel = path
+        .strip_prefix(root)
+        .ok()
+        .or_else(|| best.strip_prefix(canonical_root).ok())
+        .or_else(|| best.strip_prefix(root).ok())
+        .or_else(|| path.strip_prefix(canonical_root).ok())
+        .unwrap_or(path);
+    rel.to_string_lossy().replace('\\', "/")
+}
+
 struct SelectedStats {
     files_changed: i64,
     symbols: i64,
@@ -265,32 +288,38 @@ async fn index_selected(
     run_id: i64,
     progress: &mut (impl FnMut(IndexProgress) + Send),
 ) -> anyhow::Result<SelectedStats> {
-    let total = selected.len() as i64;
+    // Pre-read selected files so `total` counts only files that actually need
+    // reparsing. Unreadable files are skipped (as before) and unchanged content
+    // is skipped so touch/atime events and spurious watcher triggers emit no
+    // positive progress frames and do not rebuild symbols/edges/tasks.
+    let mut to_parse: Vec<(&ScannedFile, String)> = Vec::new();
+    for f in selected {
+        let Ok(content) = tokio::fs::read_to_string(&f.abs_path).await else {
+            continue;
+        };
+        let hash = fnv1a_hex(content.as_bytes());
+        if let Some(prev) = files::get_by_path(conn, repo.id, &f.rel_path).await? {
+            if prev.hash.as_deref() == Some(hash.as_str()) {
+                continue;
+            }
+        }
+        to_parse.push((f, content));
+    }
+
+    let total = to_parse.len() as i64;
     let mut stats = SelectedStats {
         files_changed: 0,
         symbols: 0,
         edges: 0,
     };
-    for (i, f) in selected.iter().enumerate() {
+    for (i, (f, content)) in to_parse.iter().enumerate() {
         progress(IndexProgress {
             run_id,
             done: i as i64,
             total,
             current_file: f.rel_path.clone(),
         });
-        let Ok(content) = tokio::fs::read_to_string(&f.abs_path).await else {
-            continue;
-        };
-        let hash = fnv1a_hex(content.as_bytes());
-        // Content unchanged since last parse: skip symbol rebuild so that
-        // existing symbols, call edges and analysis tasks survive touch/atime
-        // events and spurious watcher triggers.
-        if let Some(prev) = files::get_by_path(conn, repo.id, &f.rel_path).await? {
-            if prev.hash.as_deref() == Some(hash.as_str()) {
-                continue;
-            }
-        }
-        if let Some(counts) = persist_file(conn, repo.id, f, &content).await? {
+        if let Some(counts) = persist_file(conn, repo.id, f, content).await? {
             stats.files_changed += 1;
             stats.symbols += counts.symbols;
             stats.edges += counts.edges;

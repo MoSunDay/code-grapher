@@ -35,6 +35,7 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
         done,
         total,
         phase: asStr(raw.phase),
+        current_file: asStr(raw.current_file),
       }
     }
     case 'index_done': {
@@ -57,6 +58,31 @@ export function parseWsEvent(raw: unknown): WsEvent | null {
           duration_ms: asNum(stats.duration_ms) ?? 0,
         },
       }
+    }
+    case 'repo_added': {
+      const repoId = asId(raw.repo_id)
+      if (repoId === null) return null
+      return { type: 'repo_added', repo_id: repoId }
+    }
+    case 'analyze_enqueued': {
+      const repoId = asId(raw.repo_id)
+      const count = asNum(raw.count)
+      if (repoId === null || count === null) return null
+      return { type: 'analyze_enqueued', repo_id: repoId, count }
+    }
+    case 'config_updated': {
+      const analyzeConcurrency = asNum(raw.analyze_concurrency)
+      if (analyzeConcurrency === null || typeof raw.paused !== 'boolean') return null
+      return {
+        type: 'config_updated',
+        analyze_concurrency: analyzeConcurrency,
+        paused: raw.paused,
+      }
+    }
+    case 'lagged': {
+      const n = asNum(raw.n)
+      if (n === null) return null
+      return { type: 'lagged', n }
     }
     case 'log': {
       const message = asStr(raw.message)

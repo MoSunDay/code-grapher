@@ -7,8 +7,10 @@ pub mod ws;
 
 use anyhow::Result;
 use cg_analyzer::{AnalyzerConfig, OpencodeClient};
-use index_jobs::{claim, failed_event, spawn_claimed, IndexJob};
+use index_jobs::{claim, failed_event, release, spawn_claimed, IndexJob};
 use state::{AppState, ServerConfig};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Boot the daemon: db + migrations + watchers + analyzer scheduler + axum.
@@ -76,18 +78,30 @@ pub async fn run(cfg: ServerConfig) -> Result<()> {
 
 /// Watch one repo; re-indexes changed source files (debounced batches).
 pub(crate) fn spawn_repo_watcher(state: AppState, repo: cg_core::model::Repo) {
-    tokio::spawn(async move {
-        let mut rx = match cg_indexer::spawn_watcher(
-            std::path::Path::new(&repo.path),
-            Duration::from_secs(2),
-        ) {
-            Ok(rx) => rx,
+    let (mut rx, stop) =
+        match cg_indexer::spawn_watcher(std::path::Path::new(&repo.path), Duration::from_secs(2)) {
+            Ok(pair) => pair,
             Err(e) => {
                 emit_watch_failure(&state, repo.id, &format!("watcher unavailable: {e:#}"));
                 return;
             }
         };
-        loop {
+    // Register the stop flag before spawning the task; retire any older watcher
+    // for the same repo so replacing it cannot leak a second running watcher.
+    {
+        let mut stops = state
+            .watcher_stops
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(previous) = stops.insert(repo.id, Arc::clone(&stop)) {
+            previous.store(true, Ordering::SeqCst);
+        }
+    }
+    tokio::spawn(async move {
+        'watch: loop {
+            if stop.load(Ordering::SeqCst) {
+                break;
+            }
             let first = match rx.recv().await {
                 Some(cg_indexer::WatchEvent::Changed(p)) => p,
                 Some(cg_indexer::WatchEvent::Error(e)) => {
@@ -95,7 +109,9 @@ pub(crate) fn spawn_repo_watcher(state: AppState, repo: cg_core::model::Repo) {
                     continue;
                 }
                 None => {
-                    emit_watch_failure(&state, repo.id, "watcher stopped (channel closed)");
+                    if !stop.load(Ordering::SeqCst) {
+                        emit_watch_failure(&state, repo.id, "watcher stopped (channel closed)");
+                    }
                     break;
                 }
             };
@@ -110,14 +126,17 @@ pub(crate) fn spawn_repo_watcher(state: AppState, repo: cg_core::model::Repo) {
                         emit_watch_failure(&state, repo.id, &e);
                     }
                     Ok(None) => {
-                        emit_watch_failure(&state, repo.id, "watcher stopped (channel closed)");
+                        if !stop.load(Ordering::SeqCst) {
+                            emit_watch_failure(&state, repo.id, "watcher stopped (channel closed)");
+                        }
                         closed = true;
                         break;
                     }
                     Err(_) => {}
                 }
             }
-            if closed {
+            // Never queue more index work once this watcher has been stopped.
+            if closed || stop.load(Ordering::SeqCst) {
                 break;
             }
             batch.dedup();
@@ -148,11 +167,49 @@ pub(crate) fn spawn_repo_watcher(state: AppState, repo: cg_core::model::Repo) {
             // API and watcher share the per-repo lock: wait instead of dropping
             // events when an API-triggered run is already in progress.
             while !claim(&state, repo.id) {
+                if stop.load(Ordering::SeqCst) {
+                    break 'watch;
+                }
                 tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+            if stop.load(Ordering::SeqCst) {
+                release(&state, repo.id);
+                break;
             }
             spawn_claimed(state.clone(), repo.clone(), job);
         }
+        unregister_watcher_stop(&state, repo.id, &stop);
     });
+}
+
+/// Ask the repo's watcher (if any) to stop and forget its flag. The watcher
+/// task then exits when its channel closes without reporting a failure.
+pub(crate) fn stop_repo_watcher(state: &AppState, repo_id: i64) {
+    let stop = {
+        let mut stops = state
+            .watcher_stops
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        stops.remove(&repo_id)
+    };
+    if let Some(stop) = stop {
+        stop.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Remove the map entry only while it still points at this watcher's flag, so
+/// a newer watcher for the same repo is never unregistered by an older task.
+fn unregister_watcher_stop(state: &AppState, repo_id: i64, stop: &Arc<AtomicBool>) {
+    let mut stops = state
+        .watcher_stops
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let is_current = stops
+        .get(&repo_id)
+        .is_some_and(|current| Arc::ptr_eq(current, stop));
+    if is_current {
+        stops.remove(&repo_id);
+    }
 }
 
 fn emit_watch_failure(state: &AppState, repo_id: i64, message: &str) {

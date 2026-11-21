@@ -17,7 +17,7 @@
 - **failed 重试**：对 `failed` 仓库重发同一 URL = 重置为 `cloning` 并重新克隆（响应含 `retried:true`）；`cloning`/`ready` 状态仍返回 409
 - **克隆超时**：`CG_CLONE_TIMEOUT` 环境变量（秒，默认 `1800`，`0` 或非法值 = 不限）；超时置 `failed`（error 带原因）并清理半克隆目录
 - **单实例假设（Repos）**：多实例共享同一 DB 时，B 实例启动会把 A 实例进行中的 `cloning` 行误置 `failed`（与 Features 段"每分区单写者"声明一致，生产请保持 cg-server 单实例）
-- `DELETE /api/repos/{id}` → `{ok:true}`（`cloning` 中返回 409；不存在返回 404；本期不删除 clones_root 下的克隆目录）
+- `DELETE /api/repos/{id}` → `{ok:true}`（`cloning` 克隆中或正在索引时返回 409；不存在返回 404）。删除成功会停止该仓库的 watcher（本进程内的监听句柄一并移除）；本期仍不删除 `clones_root` 下的克隆目录
 - `POST /api/repos/{id}/index` body `{full?:bool}` → `{ok:true}`（已有索引在跑时为 `{run_id:null,already_running:true}`，此处 `null` 仅表示未新建 run）；`status=cloning` 时返回 409；进度走 WS
 - **索引单飞**：同一仓库同一时刻只允许一个索引任务（API 与 watcher 共享 per-repo 锁）。API 冲突时直接返回 `already_running`；watcher 事件不丢弃，排队等当前 run 结束后以 `trigger=watch` 执行，保证变更不丢、图谱不并发写
 - `POST /api/repos/{id}/analyze` → `{enqueued:N}`（为全部函数入队 hidden_calls 任务）
@@ -65,11 +65,12 @@
 - `GET /ws/events`：JSON 文本帧
   - `{type:"repo_added", repo_id}`
   - `{type:"clone_done", repo_id}` / `{type:"clone_failed", repo_id, error}`
-  - `{type:"index_progress", repo_id, run_id, done, total, phase, current_file}`：`run_id` 为本次 index run 的真实 id（`index_runs.id`）；服务端新版本始终非 null，仅旧版服务端可能为 null（前端保留兼容）。`total` 是本次**待解析的变更文件数**（不是全仓库扫描数）；解析开始前先发一帧 `done=0,total=0`（前端显示“准备中”），末帧满足 `done==total`；`current_file` 为正在解析的文件（完成时为空串）
+  - `{type:"index_progress", repo_id, run_id, done, total, phase, current_file}`：`run_id` 为本次 index run 的真实 id（`index_runs.id`）；服务端新版本始终非 null，仅旧版服务端可能为 null（前端保留兼容）。`total` 是本次**待解析的变更文件数**（不是全仓库扫描数）；解析开始前先发一帧 `done=0,total=0`（前端显示“准备中”），末帧满足 `done==total`；`current_file` 为正在解析的文件（完成时为空串）。前端只接受与当前 active run 一致的进度帧（并记住最近结束的 run，丢弃其迟到帧），其他 run 的进度直接忽略；`run_id` 为 null 的旧版帧仍然接受
   - `{type:"index_done", repo_id, run_id, stats:{files_changed,symbols,edges,symbols_total,edges_total,duration_ms}}`：`symbols`/`edges` 是本次**解析阶段计数**（落库去重前）；`symbols_total`/`edges_total` 是完成时图谱内**去重后的当前总数**（旧服务端缺省时前端回退为 symbols/edges；前端文案区分“本次解析”与“图内共”）；watch 触发的 run 同样携带这些字段
   - `{type:"index_failed", repo_id, run_id, error}`：索引任务失败，`error` 为格式化错误链；`run_id` 为失败的那次 run，若失败发生在创建 run 之前（如 watcher 初始化失败）则为 null；本次不会再发 `index_done`，前端应停止进度并提示可重试（再次 `POST /api/repos/{id}/index`）；失败前已写入的解析结果不回滚
   - `{type:"config_updated", analyze_concurrency, paused}`：`PUT /api/config` 成功后广播；`paused` 等价于 `analyze_concurrency==0`（暂停消费 pending 任务，running 任务自然跑完）
   - `{type:"analyze_enqueued", repo_id, count}`
+  - `{type:"lagged", n}`：WS broadcast 通道积压，`n` 为被丢弃的消息条数（慢消费者）；前端据此提示日志可能不完整
   - `{type:"log", level, message}`
 
 ## 补充端点
